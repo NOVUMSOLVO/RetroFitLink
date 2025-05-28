@@ -1,0 +1,13 @@
+{
+  "name": "retrofitlink-iot-simulator",
+  "version": "1.0.0",
+  "description": "IoT sensor data simulator for RetroFitLink",
+  "main": "sensor-simulator.js",
+  "scripts": {
+    "start": "node sensor-simulator.js"
+  },
+  "dependencies": {
+    "axios": "^1.4.0",
+    "@faker-js/faker": "^8.0.0"
+  }
+}

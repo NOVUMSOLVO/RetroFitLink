@@ -1,0 +1,52 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Build and distribution files
+dist/
+build/
+coverage/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# IDE and editor folders
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Docker and container related
+.dockerignore
+*.env.docker
+
+# Testing
+coverage/
+.nyc_output
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Blockchain related
+blockchain/artifacts
+blockchain/cache
+blockchain/typechain
+
+# Sensitive files that might contain business logic or keys
+**/config/secrets.js
+**/config/keys.js
+**/private/*.json

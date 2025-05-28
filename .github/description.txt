@@ -1,0 +1,1 @@
+RetroFitLink - A blockchain-verified platform connecting residents, installers, and authorities in the building retrofit ecosystem. Features multi-stakeholder access control, IoT integration, and secure verification processes.

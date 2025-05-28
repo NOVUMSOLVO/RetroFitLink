@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "5000:5000"
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/retrofitlink
+      - BLOCKCHAIN_RPC_URL=http://blockchain:8545
+      - JWT_SECRET=your_jwt_secret_here_change_in_production
+    depends_on:
+      - mongo
+      - blockchain
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  blockchain:
+    build: ./blockchain
+    ports:
+      - "8545:8545"
+
+  mongo:
+    image: mongo:5.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  iot-simulator:
+    build: ./iot-simulator
+    depends_on:
+      - backend
+
+volumes:
+  mongo-data:
