@@ -244,11 +244,17 @@ jobs:
 
     - name: Deploy to staging
       run: |
-        helm upgrade --install retrofitlink-staging ./helm-chart \
+        helm upgrade --install retrofitlink-staging ./helm/retrofitlink \
           --namespace retrofitlink-staging \
           --create-namespace \
-          --set image.tag=${{ github.sha }} \
-          --set environment=staging \
+          --set backend.image.tag=${{ github.sha }} \
+          --set frontend.image.tag=${{ github.sha }} \
+          --set blockchain.image.tag=${{ github.sha }} \
+          --set iot-simulator.image.tag=${{ github.sha }} \
+          --set global.environment=staging \
+          --values ./helm/retrofitlink/values-staging.yaml \
+          --timeout 10m \
+          --wait
           --set ingress.hosts[0].host=staging.retrofitlink.com \
           --values values-staging.yaml
 

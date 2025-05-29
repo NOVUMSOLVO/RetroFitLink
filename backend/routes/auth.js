@@ -6,6 +6,8 @@ const User = require('../models/User');
 const { validateUser, validateLogin } = require('../utils/validation');
 const { AppError } = require('../utils/errorHandler');
 const logger = require('../utils/logger');
+const MFAService = require('../utils/mfa');
+const { authenticateToken } = require('../middleware/auth');
 const router = express.Router();
 
 // Strict rate limiting for auth endpoints
@@ -174,6 +176,26 @@ router.post('/login', async (req, res, next) => {
       }
     );
 
+    // Check if MFA is enabled
+    if (user.mfaEnabled) {
+      // Return partial success - require MFA verification
+      logger.logUserAction(user._id, 'LOGIN_MFA_REQUIRED', {
+        ip: req.ip,
+        userAgent: req.get('User-Agent')
+      });
+
+      return res.json({
+        success: true,
+        requiresMFA: true,
+        message: 'Please provide your 2FA verification code',
+        user: {
+          id: user._id,
+          email: user.email,
+          name: user.name
+        }
+      });
+    }
+
     // Log successful login
     logger.logUserAction(user._id, 'LOGIN', {
       ip: req.ip,
@@ -204,7 +226,8 @@ router.post('/login', async (req, res, next) => {
         email: user.email,
         role: user.role,
         authorityId: user.authorityId,
-        lastLogin: user.lastLogin
+        lastLogin: user.lastLogin,
+        mfaEnabled: user.mfaEnabled
       }
     });
   } catch (error) {
@@ -235,6 +258,263 @@ router.post('/logout', async (req, res, next) => {
     });
   } catch (error) {
     logger.error('Logout error:', error);
+    next(error);
+  }
+});
+
+// MFA Setup - Generate QR code and backup codes
+router.post('/mfa/setup', authenticateToken, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return next(new AppError('User not found', 404));
+    }
+
+    if (user.mfaEnabled) {
+      return next(new AppError('MFA is already enabled', 400));
+    }
+
+    // Generate MFA secret and QR code
+    const mfaData = await MFAService.generateMFASecret(user.email, user.name);
+
+    // Store the secret temporarily (user needs to verify before enabling)
+    await User.updateOne(
+      { _id: user._id },
+      { mfaSecret: mfaData.secret }
+    );
+
+    logger.logUserAction(user._id, 'MFA_SETUP_INITIATED', {
+      ip: req.ip
+    });
+
+    res.json({
+      success: true,
+      qrCode: mfaData.qrCode,
+      manualEntryKey: mfaData.manualEntryKey,
+      backupCodes: mfaData.backupCodes
+    });
+  } catch (error) {
+    logger.error('MFA setup error:', error);
+    next(error);
+  }
+});
+
+// MFA Verify and Enable
+router.post('/mfa/verify', authenticateToken, async (req, res, next) => {
+  try {
+    const { token, backupCodes } = req.body;
+
+    if (!token || !backupCodes || !Array.isArray(backupCodes)) {
+      return next(new AppError('TOTP token and backup codes are required', 400));
+    }
+
+    const user = await User.findById(req.user.userId).select('+mfaSecret');
+    if (!user || !user.mfaSecret) {
+      return next(new AppError('MFA setup not initiated', 400));
+    }
+
+    // Verify the TOTP token
+    const isValidToken = MFAService.verifyTOTP(token, user.mfaSecret);
+    if (!isValidToken) {
+      logger.warn('Invalid MFA token during setup:', {
+        userId: user._id,
+        ip: req.ip
+      });
+      return next(new AppError('Invalid verification code', 400));
+    }
+
+    // Hash backup codes for secure storage
+    const hashedBackupCodes = MFAService.hashBackupCodes(backupCodes);
+
+    // Enable MFA
+    await User.updateOne(
+      { _id: user._id },
+      {
+        mfaEnabled: true,
+        mfaBackupCodes: hashedBackupCodes
+      }
+    );
+
+    logger.logUserAction(user._id, 'MFA_ENABLED', {
+      ip: req.ip
+    });
+
+    res.json({
+      success: true,
+      message: 'MFA enabled successfully'
+    });
+  } catch (error) {
+    logger.error('MFA verification error:', error);
+    next(error);
+  }
+});
+
+// MFA Disable
+router.post('/mfa/disable', authenticateToken, async (req, res, next) => {
+  try {
+    const { password, token } = req.body;
+
+    if (!password || !token) {
+      return next(new AppError('Password and TOTP token are required', 400));
+    }
+
+    const user = await User.findById(req.user.userId)
+      .select('+password +mfaSecret +mfaBackupCodes');
+    
+    if (!user) {
+      return next(new AppError('User not found', 404));
+    }
+
+    if (!user.mfaEnabled) {
+      return next(new AppError('MFA is not enabled', 400));
+    }
+
+    // Verify password
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
+      logger.warn('Invalid password during MFA disable:', {
+        userId: user._id,
+        ip: req.ip
+      });
+      return next(new AppError('Invalid password', 401));
+    }
+
+    // Verify TOTP token
+    const isValidToken = MFAService.verifyTOTP(token, user.mfaSecret);
+    if (!isValidToken) {
+      logger.warn('Invalid MFA token during disable:', {
+        userId: user._id,
+        ip: req.ip
+      });
+      return next(new AppError('Invalid verification code', 400));
+    }
+
+    // Disable MFA
+    await User.updateOne(
+      { _id: user._id },
+      {
+        $unset: {
+          mfaSecret: 1,
+          mfaBackupCodes: 1
+        },
+        mfaEnabled: false
+      }
+    );
+
+    logger.logUserAction(user._id, 'MFA_DISABLED', {
+      ip: req.ip
+    });
+
+    res.json({
+      success: true,
+      message: 'MFA disabled successfully'
+    });
+  } catch (error) {
+    logger.error('MFA disable error:', error);
+    next(error);
+  }
+});
+
+// MFA Validate (for login)
+router.post('/mfa/validate', async (req, res, next) => {
+  try {
+    const { email, token, isBackupCode = false } = req.body;
+
+    if (!email || !token) {
+      return next(new AppError('Email and verification code are required', 400));
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() })
+      .select('+mfaSecret +mfaBackupCodes');
+
+    if (!user || !user.mfaEnabled) {
+      return next(new AppError('Invalid request', 400));
+    }
+
+    let isValid = false;
+    let updatedBackupCodes = user.mfaBackupCodes;
+
+    if (isBackupCode) {
+      // Verify backup code
+      const verification = MFAService.verifyHashedBackupCode(token, user.mfaBackupCodes);
+      isValid = verification.isValid;
+      updatedBackupCodes = verification.remainingCodes;
+
+      if (isValid) {
+        // Update user's backup codes
+        await User.updateOne(
+          { _id: user._id },
+          { mfaBackupCodes: updatedBackupCodes }
+        );
+      }
+    } else {
+      // Verify TOTP token
+      isValid = MFAService.verifyTOTP(token, user.mfaSecret);
+    }
+
+    if (!isValid) {
+      logger.warn('Invalid MFA validation attempt:', {
+        userId: user._id,
+        isBackupCode,
+        ip: req.ip
+      });
+      return next(new AppError('Invalid verification code', 400));
+    }
+
+    // Generate JWT token
+    const jwtToken = jwt.sign(
+      { 
+        userId: user._id, 
+        role: user.role,
+        tokenVersion: user.tokenVersion || 1
+      },
+      process.env.JWT_SECRET,
+      { 
+        expiresIn: process.env.JWT_EXPIRES_IN || '24h',
+        issuer: 'retrofitlink-api',
+        audience: 'retrofitlink-client'
+      }
+    );
+
+    logger.logUserAction(user._id, 'MFA_LOGIN_SUCCESS', {
+      isBackupCode,
+      ip: req.ip
+    });
+
+    res.json({
+      success: true,
+      token: jwtToken,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        authorityId: user.authorityId,
+        mfaEnabled: user.mfaEnabled
+      },
+      backupCodesRemaining: updatedBackupCodes.length
+    });
+  } catch (error) {
+    logger.error('MFA validation error:', error);
+    next(error);
+  }
+});
+
+// Get MFA Status
+router.get('/mfa/status', authenticateToken, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.userId).select('+mfaBackupCodes');
+    if (!user) {
+      return next(new AppError('User not found', 404));
+    }
+
+    res.json({
+      success: true,
+      mfaEnabled: user.mfaEnabled,
+      backupCodesRemaining: user.mfaBackupCodes ? user.mfaBackupCodes.length : 0
+    });
+  } catch (error) {
+    logger.error('MFA status error:', error);
     next(error);
   }
 });

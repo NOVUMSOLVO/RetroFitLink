@@ -1,0 +1,308 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: retrofitlink-prod
+  labels:
+    app: logstash
+    component: logging
+data:
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    path.config: /usr/share/logstash/pipeline
+    pipeline.workers: 2
+    pipeline.batch.size: 125
+    pipeline.batch.delay: 50
+    
+    # X-Pack monitoring
+    xpack.monitoring.enabled: true
+    xpack.monitoring.elasticsearch.hosts: ["http://elasticsearch:9200"]
+    
+    # Dead Letter Queue
+    dead_letter_queue.enable: true
+    dead_letter_queue.max_bytes: 1024mb
+    
+    # Logging
+    log.level: info
+    log.format: json
+    
+  pipelines.yml: |
+    - pipeline.id: retrofitlink-logs
+      path.config: "/usr/share/logstash/pipeline/retrofitlink.conf"
+      pipeline.workers: 2
+      queue.type: persisted
+      queue.drain: true
+      
+    - pipeline.id: kubernetes-logs
+      path.config: "/usr/share/logstash/pipeline/kubernetes.conf"
+      pipeline.workers: 1
+      
+    - pipeline.id: nginx-logs
+      path.config: "/usr/share/logstash/pipeline/nginx.conf"
+      pipeline.workers: 1
+  
+  retrofitlink.conf: |
+    input {
+      beats {
+        port => 5044
+        tags => ["retrofitlink"]
+      }
+      
+      # MongoDB logs
+      tcp {
+        port => 5045
+        codec => json
+        tags => ["mongodb"]
+      }
+      
+      # Application logs from containers
+      http {
+        port => 8080
+        tags => ["application"]
+      }
+    }
+    
+    filter {
+      # Parse timestamp
+      date {
+        match => [ "timestamp", "ISO8601" ]
+        target => "@timestamp"
+      }
+      
+      # Add environment tag
+      mutate {
+        add_field => { "environment" => "production" }
+        add_field => { "cluster" => "retrofitlink-prod" }
+      }
+      
+      # Parse JSON logs
+      if [message] =~ /^\{.*\}$/ {
+        json {
+          source => "message"
+        }
+      }
+      
+      # Parse log levels
+      if [level] {
+        mutate {
+          uppercase => [ "level" ]
+        }
+      }
+      
+      # Extract service from container name
+      if [container_name] {
+        grok {
+          match => { "container_name" => "retrofitlink-(?<service_name>\w+)" }
+        }
+      }
+      
+      # Parse error messages for better alerting
+      if [level] == "ERROR" {
+        grok {
+          match => { "message" => "(?<error_type>\w+Error): (?<error_message>.*)" }
+          tag_on_failure => ["_grokparsefailure_error"]
+        }
+      }
+      
+      # MongoDB specific parsing
+      if "mongodb" in [tags] {
+        grok {
+          match => { "message" => "%{TIMESTAMP_ISO8601:timestamp} %{WORD:severity} %{WORD:component} *\[%{WORD:context}\] %{GREEDYDATA:mongodb_message}" }
+        }
+      }
+      
+      # Application specific parsing
+      if "retrofitlink-backend" in [tags] {
+        grok {
+          match => { "message" => "%{TIMESTAMP_ISO8601:timestamp} \[%{WORD:level}\] %{DATA:module}: %{GREEDYDATA:log_message}" }
+        }
+        
+        # Parse API request logs
+        if [message] =~ /HTTP/ {
+          grok {
+            match => { "message" => "%{WORD:method} %{URIPATH:path} %{NUMBER:status_code} %{NUMBER:response_time}ms" }
+          }
+          
+          mutate {
+            convert => { "status_code" => "integer" }
+            convert => { "response_time" => "float" }
+          }
+        }
+      }
+      
+      # Blockchain service parsing
+      if "blockchain-service" in [tags] {
+        grok {
+          match => { "message" => "(?<blockchain_action>\w+) transaction (?<tx_hash>0x[a-fA-F0-9]{64}) %{GREEDYDATA:blockchain_details}" }
+        }
+      }
+      
+      # Remove sensitive information
+      mutate {
+        gsub => [
+          "message", "password=\w+", "password=***",
+          "message", "token=[\w-]+", "token=***",
+          "message", "apikey=[\w-]+", "apikey=***"
+        ]
+      }
+    }
+    
+    output {
+      elasticsearch {
+        hosts => ["http://elasticsearch:9200"]
+        index => "retrofitlink-logs-%{+YYYY.MM.dd}"
+        template_name => "retrofitlink"
+        template => "/usr/share/logstash/templates/retrofitlink-template.json"
+        template_overwrite => true
+      }
+      
+      # Send critical errors to alerting
+      if [level] == "ERROR" or [level] == "FATAL" {
+        http {
+          url => "http://alertmanager:9093/api/v1/alerts"
+          http_method => "post"
+          format => "json"
+          mapping => {
+            "alerts" => [{
+              "labels" => {
+                "alertname" => "ApplicationError"
+                "service" => "%{service_name}"
+                "severity" => "critical"
+                "level" => "%{level}"
+              }
+              "annotations" => {
+                "summary" => "Application error detected"
+                "description" => "%{message}"
+              }
+            }]
+          }
+        }
+      }
+      
+      # Debug output (remove in production)
+      # stdout { codec => rubydebug }
+    }
+  
+  kubernetes.conf: |
+    input {
+      beats {
+        port => 5046
+        tags => ["kubernetes"]
+      }
+    }
+    
+    filter {
+      # Parse Kubernetes logs
+      if [kubernetes] {
+        mutate {
+          add_field => { "k8s_namespace" => "%{[kubernetes][namespace]}" }
+          add_field => { "k8s_pod" => "%{[kubernetes][pod][name]}" }
+          add_field => { "k8s_container" => "%{[kubernetes][container][name]}" }
+        }
+      }
+      
+      # Add cluster information
+      mutate {
+        add_field => { "cluster" => "retrofitlink-prod" }
+        add_field => { "environment" => "production" }
+      }
+    }
+    
+    output {
+      elasticsearch {
+        hosts => ["http://elasticsearch:9200"]
+        index => "kubernetes-logs-%{+YYYY.MM.dd}"
+      }
+    }
+  
+  nginx.conf: |
+    input {
+      beats {
+        port => 5047
+        tags => ["nginx"]
+      }
+    }
+    
+    filter {
+      # Parse Nginx access logs
+      grok {
+        match => { "message" => "%{NGINXACCESS}" }
+      }
+      
+      # Parse response time and add metrics
+      if [response_time] {
+        mutate {
+          convert => { "response_time" => "float" }
+        }
+      }
+      
+      # Categorize status codes
+      if [response] {
+        mutate {
+          convert => { "response" => "integer" }
+        }
+        
+        if [response] >= 500 {
+          mutate {
+            add_field => { "status_category" => "server_error" }
+          }
+        } else if [response] >= 400 {
+          mutate {
+            add_field => { "status_category" => "client_error" }
+          }
+        } else if [response] >= 300 {
+          mutate {
+            add_field => { "status_category" => "redirect" }
+          }
+        } else if [response] >= 200 {
+          mutate {
+            add_field => { "status_category" => "success" }
+          }
+        }
+      }
+      
+      # GeoIP enrichment
+      geoip {
+        source => "clientip"
+        target => "geoip"
+      }
+    }
+    
+    output {
+      elasticsearch {
+        hosts => ["http://elasticsearch:9200"]
+        index => "nginx-logs-%{+YYYY.MM.dd}"
+      }
+    }
+  
+  retrofitlink-template.json: |
+    {
+      "index_patterns": ["retrofitlink-logs-*"],
+      "settings": {
+        "number_of_shards": 2,
+        "number_of_replicas": 1,
+        "index.refresh_interval": "30s",
+        "index.translog.durability": "async",
+        "index.codec": "best_compression"
+      },
+      "mappings": {
+        "properties": {
+          "@timestamp": { "type": "date" },
+          "level": { "type": "keyword" },
+          "service_name": { "type": "keyword" },
+          "message": { "type": "text", "analyzer": "standard" },
+          "error_type": { "type": "keyword" },
+          "error_message": { "type": "text" },
+          "status_code": { "type": "integer" },
+          "response_time": { "type": "float" },
+          "method": { "type": "keyword" },
+          "path": { "type": "keyword" },
+          "user_id": { "type": "keyword" },
+          "session_id": { "type": "keyword" },
+          "tx_hash": { "type": "keyword" },
+          "blockchain_action": { "type": "keyword" },
+          "environment": { "type": "keyword" },
+          "cluster": { "type": "keyword" }
+        }
+      }
+    }

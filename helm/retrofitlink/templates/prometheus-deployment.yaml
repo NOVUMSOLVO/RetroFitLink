@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "retrofitlink.fullname" . }}-prometheus
+  labels:
+    {{- include "retrofitlink.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/name: prometheus
+spec:
+  replicas: {{ .Values.monitoring.prometheus.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "retrofitlink.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: monitoring
+      app.kubernetes.io/name: prometheus
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/prometheus-configmap.yaml") . | sha256sum }}
+        {{- with .Values.monitoring.prometheus.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "retrofitlink.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: monitoring
+        app.kubernetes.io/name: prometheus
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "retrofitlink.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.monitoring.prometheus.podSecurityContext | nindent 8 }}
+      containers:
+        - name: prometheus
+          securityContext:
+            {{- toYaml .Values.monitoring.prometheus.securityContext | nindent 12 }}
+          image: "{{ .Values.monitoring.prometheus.image.repository }}:{{ .Values.monitoring.prometheus.image.tag }}"
+          imagePullPolicy: {{ .Values.monitoring.prometheus.image.pullPolicy }}
+          ports:
+            - name: web
+              containerPort: 9090
+              protocol: TCP
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus/data
+            - --web.console.libraries=/etc/prometheus/console_libraries
+            - --web.console.templates=/etc/prometheus/consoles
+            - --storage.tsdb.retention.time={{ .Values.monitoring.prometheus.retention }}
+            - --web.enable-lifecycle
+            - --web.enable-admin-api
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: web
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: web
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 4
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.monitoring.prometheus.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: rules
+              mountPath: /etc/prometheus/rules
+            - name: storage
+              mountPath: /prometheus/data
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "retrofitlink.fullname" . }}-prometheus-config
+        - name: rules
+          configMap:
+            name: {{ include "retrofitlink.fullname" . }}-prometheus-rules
+        - name: storage
+          {{- if .Values.monitoring.prometheus.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "retrofitlink.fullname" . }}-prometheus-storage
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.monitoring.prometheus.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.monitoring.prometheus.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.monitoring.prometheus.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

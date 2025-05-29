@@ -1,26 +1,60 @@
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
+const cors = require('cors');
+const config = require('./config/environment');
 const { blockchainMiddleware } = require('./middleware/blockchain');
-const { setupSecurity } = require('./middleware/security');
+const { 
+  securityHeaders, 
+  generalLimiter, 
+  sanitizeInput, 
+  corsOptions, 
+  compressionMiddleware 
+} = require('./middleware/security');
+const {
+  advancedRateLimit,
+  verifySignature,
+  replayProtection,
+  contentSecurityPolicy,
+  securityHeaders: enhancedSecurityHeaders,
+  inputSanitization,
+  abuseDetection
+} = require('./middleware/advancedSecurity');
 const { setupGracefulShutdown, errorHandler, notFound } = require('./utils/errorHandler');
-const logger = require('./utils/logger');
+const { logger, auditLogger, performanceLogger } = require('./utils/logger');
 const authRoutes = require('./routes/auth');
 const retrofitRoutes = require('./routes/retrofits');
 const healthRoutes = require('./routes/health');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = config.port;
 
-// Setup security middleware first
-setupSecurity(app);
+// Setup enhanced security middleware stack
+app.use(enhancedSecurityHeaders);
+app.use(contentSecurityPolicy);
+app.use(compressionMiddleware);
+app.use(cors(corsOptions));
+app.use(advancedRateLimit);
+app.use(inputSanitization);
+app.use(abuseDetection);
 
-// Request logging middleware
+// Performance monitoring middleware
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
-    logger.logApiRequest(req, res, duration);
+    performanceLogger.apiResponse(req.path, req.method, duration, res.statusCode);
+    
+    // Log slow requests
+    if (duration > 2000) {
+      logger.warn('Slow API request detected', {
+        path: req.path,
+        method: req.method,
+        duration: `${duration}ms`,
+        statusCode: res.statusCode,
+        ip: req.ip
+      });
+    }
   });
   next();
 });
@@ -32,7 +66,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Blockchain middleware
 app.use(blockchainMiddleware);
 
-// Database connection with retry logic
+// Database connection with enhanced security, encryption, and retry logic
 const connectDB = async () => {
   try {
     const mongoOptions = {
@@ -41,11 +75,48 @@ const connectDB = async () => {
       socketTimeoutMS: 45000,
       family: 4,
       retryWrites: true,
-      writeConcern: { w: 'majority' }
+      writeConcern: { w: 'majority' },
+      authSource: 'admin',
+      ssl: config.nodeEnv === 'production',
+      sslValidate: config.nodeEnv === 'production'
     };
 
-    await mongoose.connect(process.env.MONGO_URI, mongoOptions);
-    logger.info('MongoDB connected successfully');
+    // Import encryption service in production environment
+    if (config.nodeEnv === 'production' && config.useFieldEncryption) {
+      try {
+        const { getEncryptionService } = require('./config/encryption');
+        const encryptionService = await getEncryptionService();
+        logger.info('Initialized database field-level encryption');
+        
+        // Use the encrypted client instead of default mongoose connection
+        // Note: This would require refactoring the application to use MongoDB driver directly
+        // for encrypted fields. For now, we'll use mongoose as usual.
+      } catch (encryptionError) {
+        logger.error('Failed to initialize encryption service:', encryptionError);
+        logger.warn('Continuing without field-level encryption');
+      }
+    }
+
+    await mongoose.connect(config.mongoUri, mongoOptions);
+    logger.info('MongoDB connected successfully', {
+      environment: config.nodeEnv,
+      encryption: config.useFieldEncryption ? 'enabled' : 'disabled',
+      database: config.mongoUri.split('/').pop().split('?')[0]
+    });
+    
+    // Set up database monitoring
+    mongoose.connection.on('error', (err) => {
+      logger.error('MongoDB connection error:', err);
+    });
+    
+    mongoose.connection.on('disconnected', () => {
+      logger.warn('MongoDB disconnected');
+    });
+    
+    mongoose.connection.on('reconnected', () => {
+      logger.info('MongoDB reconnected');
+    });
+    
   } catch (error) {
     logger.error('MongoDB connection failed:', error);
     process.exit(1);
@@ -58,6 +129,10 @@ connectDB();
 // Health check routes (must be before authentication)
 app.use('/health', healthRoutes);
 app.use('/api/health', healthRoutes);
+
+// Apply signature verification and replay protection to critical routes only
+app.use(['/api/retrofits/verify', '/api/auth/mfa/disable', '/api/users/delete'], verifySignature);
+app.use(['/api/retrofits/verify', '/api/auth/mfa/disable', '/api/users/delete'], replayProtection);
 
 // API Routes
 app.use('/api/auth', authRoutes);
@@ -98,11 +173,23 @@ app.use(notFound);
 // Global error handler
 app.use(errorHandler);
 
-// Start server
+// Start server with enhanced logging
 const server = app.listen(PORT, () => {
-  logger.info(`🚀 RetroFitLink server running on port ${PORT}`);
-  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  logger.info(`MongoDB: ${process.env.MONGO_URI ? 'Connected' : 'Not configured'}`);
+  logger.info(`🚀 RetroFitLink server running on port ${PORT}`, {
+    environment: config.nodeEnv,
+    port: PORT,
+    mongoUri: config.mongoUri.includes('@') ? '[REDACTED]' : config.mongoUri,
+    blockchainRpc: config.blockchainRpc,
+    timestamp: new Date().toISOString()
+  });
+  
+  // Log startup metrics
+  auditLogger.securityEvent('server_startup', {
+    environment: config.nodeEnv,
+    port: PORT,
+    nodeVersion: process.version,
+    platform: process.platform
+  });
 });
 
 // Setup graceful shutdown

@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: datadog-config
+  namespace: retrofitlink-prod
+  labels:
+    app: datadog
+    component: apm
+data:
+  datadog.yaml: |
+    dd_url: "https://app.datadoghq.com"
+    api_key_file: "/etc/datadog-agent/DD_API_KEY"
+    site: "datadoghq.com"
+    
+    # APM Configuration
+    apm_config:
+      enabled: true
+      apm_non_local_traffic: true
+      receiver_port: 8126
+      max_traces_per_second: 50
+      analyzed_rate_by_service:
+        retrofitlink-backend: 1.0
+        retrofitlink-frontend: 1.0
+        blockchain-service: 1.0
+        iot-simulator: 1.0
+    
+    # Log Collection
+    logs_config:
+      enabled: true
+      container_collect_all: true
+      processing_rules:
+        - type: exclude_at_match
+          name: exclude_healthcheck
+          pattern: "GET /health"
+        - type: mask_sequences
+          name: mask_sensitive_data
+          pattern: "password=\\w+"
+          replace_placeholder: "password=***"
+    
+    # Process Collection
+    process_config:
+      enabled: true
+      scrub_args: true
+      custom_sensitive_words:
+        - "password"
+        - "token"
+        - "secret"
+        - "key"
+    
+    # Network Monitoring
+    network_config:
+      enabled: true
+    
+    # Custom Metrics
+    dogstatsd_config:
+      enabled: true
+      dogstatsd_port: 8125
+      non_local_traffic: true
+    
+    # Kubernetes Integration
+    kubernetes_kubelet_host: ${DD_KUBERNETES_KUBELET_HOST}
+    kubernetes_http_kubelet_port: 10255
+    kubernetes_https_kubelet_port: 10250
+    kubelet_tls_verify: false
+    
+    # Service Discovery
+    config_providers:
+      - name: kubernetes
+        polling: true
+      - name: docker
+        polling: true
+    
+    # Additional Integrations
+    integrations:
+      kubernetes_state:
+        init_config:
+        instances:
+          - kube_state_url: http://kube-state-metrics:8080/metrics
+            kubernetes_timeout: 20
+            telemetry: true
+      
+      mongodb:
+        init_config:
+        instances:
+          - hosts:
+              - mongodb:27017
+            username: datadog
+            password: "${DD_MONGODB_PASSWORD}"
+            database_name: retrofitlink
+            replica_check: true
+            collections:
+              - users
+              - properties
+              - retrofits
+              - blockchain_transactions
+      
+      nginx:
+        init_config:
+        instances:
+          - nginx_status_url: http://nginx/nginx_status/
+            tags:
+              - service:retrofitlink-frontend

@@ -1,0 +1,131 @@
+# Staging environment specific values for RetroFitLink
+
+# Global staging configuration
+global:
+  environment: staging
+  
+# Backend staging configuration
+backend:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/retrofitlink/backend
+  
+  env:
+    LOG_LEVEL: debug
+    
+  resources:
+    limits:
+      cpu: 300m
+      memory: 384Mi
+    requests:
+      cpu: 150m
+      memory: 192Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+
+# Frontend staging configuration  
+frontend:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/retrofitlink/frontend
+    
+  resources:
+    limits:
+      cpu: 200m
+      memory: 192Mi
+    requests:
+      cpu: 100m
+      memory: 96Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+
+# Blockchain staging configuration
+blockchain:
+  image:
+    repository: ghcr.io/retrofitlink/blockchain
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+# IoT Simulator staging configuration  
+iot-simulator:
+  image:
+    repository: ghcr.io/retrofitlink/iot-simulator
+
+# External dependencies - use smaller resources for staging
+mongodb:
+  enabled: true
+  replicaCount: 1
+  persistence:
+    size: 10Gi
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+redis:
+  enabled: true
+  replica:
+    replicaCount: 1
+  persistence:
+    size: 4Gi
+
+# Monitoring - reduced resources for staging
+monitoring:
+  prometheus:
+    server:
+      persistentVolume:
+        size: 20Gi
+      resources:
+        limits:
+          cpu: 300m
+          memory: 512Mi
+        requests:
+          cpu: 150m
+          memory: 256Mi
+          
+  grafana:
+    persistence:
+      size: 5Gi
+    resources:
+      limits:
+        cpu: 200m
+        memory: 192Mi
+      requests:
+        cpu: 100m
+        memory: 96Mi
+
+# Ingress staging configuration
+ingress:
+  enabled: true
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-staging"
+    nginx.ingress.kubernetes.io/rate-limit: "50"
+    
+  hosts:
+    - host: staging.retrofitlink.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+        - path: /api
+          pathType: Prefix
+          service: backend
+          
+  tls:
+    - secretName: staging-retrofitlink-tls
+      hosts:
+        - staging.retrofitlink.com

@@ -1,0 +1,193 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash
+  namespace: retrofitlink-prod
+  labels:
+    app: logstash
+    component: logging
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: logstash
+  template:
+    metadata:
+      labels:
+        app: logstash
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9600"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: logstash
+        image: docker.elastic.co/logstash/logstash:8.10.0
+        imagePullPolicy: IfNotPresent
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        ports:
+        - containerPort: 5044
+          name: beats
+          protocol: TCP
+        - containerPort: 5045
+          name: mongodb
+          protocol: TCP
+        - containerPort: 5046
+          name: kubernetes
+          protocol: TCP
+        - containerPort: 5047
+          name: nginx
+          protocol: TCP
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        - containerPort: 9600
+          name: metrics
+          protocol: TCP
+        env:
+        - name: LS_JAVA_OPTS
+          value: "-Xmx1g -Xms1g"
+        - name: ELASTICSEARCH_HOST
+          value: "elasticsearch"
+        - name: ELASTICSEARCH_PORT
+          value: "9200"
+        - name: PIPELINE_WORKERS
+          value: "2"
+        - name: PIPELINE_BATCH_SIZE
+          value: "125"
+        - name: PIPELINE_BATCH_DELAY
+          value: "50"
+        volumeMounts:
+        - name: config
+          mountPath: /usr/share/logstash/config/logstash.yml
+          subPath: logstash.yml
+          readOnly: true
+        - name: config
+          mountPath: /usr/share/logstash/config/pipelines.yml
+          subPath: pipelines.yml
+          readOnly: true
+        - name: pipeline-config
+          mountPath: /usr/share/logstash/pipeline
+          readOnly: true
+        - name: templates
+          mountPath: /usr/share/logstash/templates
+          readOnly: true
+        - name: data
+          mountPath: /usr/share/logstash/data
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 9600
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 9600
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: config
+        configMap:
+          name: logstash-config
+          items:
+          - key: logstash.yml
+            path: logstash.yml
+          - key: pipelines.yml
+            path: pipelines.yml
+      - name: pipeline-config
+        configMap:
+          name: logstash-config
+          items:
+          - key: retrofitlink.conf
+            path: retrofitlink.conf
+          - key: kubernetes.conf
+            path: kubernetes.conf
+          - key: nginx.conf
+            path: nginx.conf
+      - name: templates
+        configMap:
+          name: logstash-config
+          items:
+          - key: retrofitlink-template.json
+            path: retrofitlink-template.json
+      - name: data
+        emptyDir:
+          sizeLimit: 10Gi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - logstash
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logstash
+  namespace: retrofitlink-prod
+  labels:
+    app: logstash
+    component: logging
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9600"
+spec:
+  type: ClusterIP
+  ports:
+  - name: beats
+    port: 5044
+    targetPort: 5044
+    protocol: TCP
+  - name: mongodb
+    port: 5045
+    targetPort: 5045
+    protocol: TCP
+  - name: kubernetes
+    port: 5046
+    targetPort: 5046
+    protocol: TCP
+  - name: nginx
+    port: 5047
+    targetPort: 5047
+    protocol: TCP
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: metrics
+    port: 9600
+    targetPort: 9600
+    protocol: TCP
+  selector:
+    app: logstash

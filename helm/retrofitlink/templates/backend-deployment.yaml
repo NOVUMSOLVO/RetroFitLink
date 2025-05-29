@@ -1,0 +1,87 @@
+{{- if .Values.backend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "retrofitlink.backend.fullname" . }}
+  labels:
+    {{- include "retrofitlink.componentLabels" (dict "component" "backend" "context" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "retrofitlink.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      labels:
+        {{- include "retrofitlink.componentLabels" (dict "component" "backend" "context" .) | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ include "retrofitlink.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+          env:
+            {{- include "retrofitlink.backend.env" . | nindent 12 }}
+          {{- if .Values.backend.healthCheck.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.backend.healthCheck.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.backend.healthCheck.initialDelaySeconds }}
+            periodSeconds: {{ .Values.backend.healthCheck.periodSeconds }}
+            timeoutSeconds: {{ .Values.backend.healthCheck.timeoutSeconds }}
+            successThreshold: {{ .Values.backend.healthCheck.successThreshold }}
+            failureThreshold: {{ .Values.backend.healthCheck.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          {{- end }}
+          {{- include "retrofitlink.resources" .Values.backend | nindent 10 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: logs
+              mountPath: /app/logs
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+      {{- with .Values.backend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

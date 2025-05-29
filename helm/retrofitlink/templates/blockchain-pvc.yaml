@@ -1,0 +1,24 @@
+{{- if .Values.blockchain.persistence.enabled -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "retrofitlink.fullname" . }}-blockchain-data
+  labels:
+    {{- include "retrofitlink.labels" . | nindent 4 }}
+    app.kubernetes.io/component: blockchain
+spec:
+  accessModes:
+    {{- range .Values.blockchain.persistence.accessModes }}
+    - {{ . | quote }}
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.blockchain.persistence.size | quote }}
+  {{- if .Values.blockchain.persistence.storageClass }}
+  {{- if (eq "-" .Values.blockchain.persistence.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: "{{ .Values.blockchain.persistence.storageClass }}"
+  {{- end }}
+  {{- end }}
+{{- end -}}

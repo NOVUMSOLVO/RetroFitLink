@@ -1,0 +1,232 @@
+# Production environment specific values for RetroFitLink
+
+# Global production configuration
+global:
+  environment: production
+  
+# Backend production configuration
+backend:
+  replicaCount: 5
+  image:
+    repository: ghcr.io/retrofitlink/backend
+  
+  env:
+    LOG_LEVEL: info
+    RATE_LIMIT_WINDOW_MS: "900000"
+    RATE_LIMIT_MAX_REQUESTS: "200"
+    
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 5
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 60
+    targetMemoryUtilizationPercentage: 70
+
+# Frontend production configuration  
+frontend:
+  replicaCount: 5
+  image:
+    repository: ghcr.io/retrofitlink/frontend
+    
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 5
+    maxReplicas: 15
+    targetCPUUtilizationPercentage: 60
+
+# Blockchain production configuration
+blockchain:
+  replicaCount: 3
+  image:
+    repository: ghcr.io/retrofitlink/blockchain
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+  persistence:
+    size: 500Gi
+
+# IoT Simulator production configuration  
+iot-simulator:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/retrofitlink/iot-simulator
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# External dependencies - production scale
+mongodb:
+  enabled: true
+  replicaCount: 3
+  persistence:
+    size: 100Gi
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+  
+  # Production MongoDB configuration
+  configuration: |
+    # MongoDB production configuration
+    storage:
+      wiredTiger:
+        engineConfig:
+          cacheSizeGB: 2
+    operationProfiling:
+      mode: slowOp
+      slowOpThresholdMs: 100
+    replication:
+      replSetName: rs0
+
+redis:
+  enabled: true
+  master:
+    persistence:
+      size: 20Gi
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 500m
+        memory: 512Mi
+        
+  replica:
+    replicaCount: 3
+    persistence:
+      size: 20Gi
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+
+# Monitoring - full production monitoring stack
+monitoring:
+  prometheus:
+    server:
+      persistentVolume:
+        size: 200Gi
+      resources:
+        limits:
+          cpu: 2000m
+          memory: 4Gi
+        requests:
+          cpu: 1000m
+          memory: 2Gi
+      retention: "90d"
+      
+  grafana:
+    persistence:
+      size: 50Gi
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 500m
+        memory: 512Mi
+    
+    # Production Grafana configuration
+    grafana.ini:
+      security:
+        admin_user: admin
+      smtp:
+        enabled: true
+        host: smtp.gmail.com:587
+        skip_verify: false
+      alerting:
+        enabled: true
+        
+  # Enable all monitoring components for production
+  nodeExporter:
+    enabled: true
+  kubeStateMetrics:
+    enabled: true
+  alertmanager:
+    enabled: true
+
+# Ingress production configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rate-limit: "200"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+    
+  hosts:
+    - host: retrofitlink.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+        - path: /api
+          pathType: Prefix
+          service: backend
+        - path: /health
+          pathType: Prefix
+          service: backend
+    - host: www.retrofitlink.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+          
+  tls:
+    - secretName: retrofitlink-tls
+      hosts:
+        - retrofitlink.com
+        - www.retrofitlink.com
+
+# Security - enhanced for production
+security:
+  networkPolicies:
+    enabled: true
+  podSecurityPolicy:
+    enabled: true
+
+# Pod disruption budget - ensure high availability
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 3

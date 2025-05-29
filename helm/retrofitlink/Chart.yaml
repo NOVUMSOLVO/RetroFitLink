@@ -1,0 +1,38 @@
+apiVersion: v2
+name: retrofitlink
+description: A Helm chart for RetroFitLink application
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+maintainers:
+  - name: RetroFitLink Team
+    email: team@retrofitlink.com
+
+keywords:
+  - iot
+  - blockchain
+  - retrofit
+  - smart-building
+
+home: https://retrofitlink.com
+sources:
+  - https://github.com/retrofitlink/retrofitlink
+
+dependencies:
+  - name: mongodb
+    version: "13.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: mongodb.enabled
+  - name: redis
+    version: "17.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+  - name: prometheus
+    version: "23.x.x"
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: monitoring.prometheus.enabled
+  - name: grafana
+    version: "6.x.x"
+    repository: https://grafana.github.io/helm-charts
+    condition: monitoring.grafana.enabled

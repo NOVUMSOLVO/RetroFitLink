@@ -1,0 +1,949 @@
+# Default values for retrofitlink
+# This is a YAML-formatted file.
+
+# Global configuration
+global:
+  environment: production
+  imagePullPolicy: IfNotPresent
+  storageClass: ""
+
+# Backend configuration
+backend:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: retrofitlink/backend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 5000
+    targetPort: 5000
+    
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+      
+  env:
+    NODE_ENV: production
+    LOG_LEVEL: info
+    RATE_LIMIT_WINDOW_MS: "900000"
+    RATE_LIMIT_MAX_REQUESTS: "100"
+    
+  secrets:
+    - name: MONGO_URI
+      valueFrom:
+        secretKeyRef:
+          name: app-secrets
+          key: mongo-uri
+    - name: JWT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: app-secrets
+          key: jwt-secret
+    - name: REDIS_URL
+      valueFrom:
+        secretKeyRef:
+          name: app-secrets
+          key: redis-url
+    - name: BLOCKCHAIN_RPC_URL
+      valueFrom:
+        secretKeyRef:
+          name: app-secrets
+          key: blockchain-rpc-url
+    - name: SESSION_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: app-secrets
+          key: session-secret
+    - name: ENCRYPTION_KEY
+      valueFrom:
+        secretKeyRef:
+          name: app-secrets
+          key: encryption-key
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  healthCheck:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 10
+    successThreshold: 1
+    failureThreshold: 3
+
+# Frontend configuration
+frontend:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: retrofitlink/frontend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+    
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+    
+  resources:
+    limits:
+      cpu: 250m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      
+  env:
+    REACT_APP_ENV: production
+    
+  secrets:
+    - name: REACT_APP_API_URL
+      valueFrom:
+        secretKeyRef:
+          name: app-secrets
+          key: api-url
+    - name: REACT_APP_WS_URL
+      valueFrom:
+        secretKeyRef:
+          name: app-secrets
+          key: ws-url
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+
+  healthCheck:
+    enabled: true
+    path: /
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    timeoutSeconds: 5
+    successThreshold: 1
+    failureThreshold: 3
+
+# Blockchain service configuration
+blockchain:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ethereum/client-go
+    tag: "stable"
+    pullPolicy: IfNotPresent
+    
+  service:
+    type: ClusterIP
+    port: 8545
+    targetPort: 8545
+    
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+      
+  persistence:
+    enabled: true
+    size: 100Gi
+    
+  env:
+    - name: "--syncmode"
+      value: "fast"
+    - name: "--rpc"
+      value: "true"
+    - name: "--rpcaddr"
+      value: "0.0.0.0"
+    - name: "--rpcapi"
+      value: "db,eth,net,web3,personal"
+
+# IoT Simulator configuration
+iot-simulator:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: retrofitlink/iot-simulator
+    tag: "latest"
+    pullPolicy: IfNotPresent
+    
+  resources:
+    limits:
+      cpu: 250m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+      
+  env:
+    SIMULATION_INTERVAL: "30000"
+    
+  secrets:
+    - name: API_ENDPOINT
+      valueFrom:
+        secretKeyRef:
+          name: app-secrets
+          key: api-endpoint
+
+# External dependencies
+mongodb:
+  enabled: true
+  auth:
+    enabled: true
+    rootUser: admin
+    rootPassword: ""  # Set via secret
+    username: retrofitapp
+    password: ""      # Set via secret
+    database: retrofitlink
+  
+  persistence:
+    enabled: true
+    size: 20Gi
+    
+  resources:
+    limits:
+      cpu: 750m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+      
+  metrics:
+    enabled: true
+    
+  replicaSetName: rs0
+  replicaCount: 3
+
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: ""  # Set via secret
+    
+  master:
+    persistence:
+      enabled: true
+      size: 8Gi
+      
+    resources:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+        
+  replica:
+    replicaCount: 2
+    persistence:
+      enabled: true
+      size: 8Gi
+      
+    resources:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+        
+  metrics:
+    enabled: true
+
+# Secrets configuration
+secrets:
+  # MongoDB credentials
+  mongodb:
+    username: "retrofitlink"
+    password: "secure_mongodb_password_change_me"
+  
+  # PostgreSQL credentials
+  postgres:
+    username: "retrofitlink"
+    password: "secure_postgres_password_change_me"
+  
+  # JWT and API keys
+  jwt:
+    secret: "your_jwt_secret_key_change_me_32_chars_min"
+  api:
+    key: "your_api_key_change_me"
+  
+  # Blockchain credentials
+  blockchain:
+    privateKey: "your_blockchain_private_key_change_me"
+    mnemonic: "your twelve word mnemonic phrase goes here change me"
+  
+  # Grafana admin credentials
+  grafana:
+    adminPassword: "secure_grafana_password_change_me"
+  
+  # IoT device credentials
+  iot:
+    deviceToken: "your_iot_device_token_change_me"
+  
+  # TLS certificates
+  tls:
+    enabled: false
+    cert: ""
+    key: ""
+
+# External Secrets Operator configuration
+externalSecrets:
+  enabled: false
+  provider: "aws"  # aws, vault, gcp, azure
+  refreshInterval: "1h"
+  
+  secretStore:
+    name: "retrofitlink-secret-store"
+    kind: "SecretStore"
+  
+  # AWS Secrets Manager configuration
+  aws:
+    region: "us-west-2"
+    role: ""
+    accessKey:
+      secretName: "aws-credentials"
+      key: "access-key-id"
+    secretKey:
+      secretName: "aws-credentials"
+      key: "secret-access-key"
+  
+  # HashiCorp Vault configuration
+  vault:
+    server: "https://vault.example.com"
+    path: "secret"
+    version: "v2"
+    kubernetes:
+      mountPath: "kubernetes"
+      role: "retrofitlink"
+    token:
+      secretName: "vault-token"
+      key: "token"
+  
+  # Google Cloud Secret Manager configuration
+  gcp:
+    projectId: "your-gcp-project"
+    clusterLocation: "us-central1"
+    clusterName: "your-cluster"
+    serviceAccount: true
+    secretKey:
+      secretName: "gcp-credentials"
+      key: "service-account.json"
+  
+  # Azure Key Vault configuration
+  azure:
+    vaultUrl: "https://your-vault.vault.azure.net/"
+    tenantId: "your-tenant-id"
+    clientId: "your-client-id"
+    workloadIdentity: true
+    clientSecret:
+      secretName: "azure-credentials"
+      key: "client-secret"
+  
+  # External secrets data mapping
+  data:
+    - name: "mongodb-password"
+      remoteRef:
+        key: "retrofitlink/mongodb/password"
+    - name: "postgres-password"
+      remoteRef:
+        key: "retrofitlink/postgres/password"
+    - name: "jwt-secret"
+      remoteRef:
+        key: "retrofitlink/jwt/secret"
+    - name: "blockchain-private-key"
+      remoteRef:
+        key: "retrofitlink/blockchain/private-key"
+
+# Enhanced Monitoring configuration
+monitoring:
+  enabled: true
+  
+  # Prometheus configuration
+  prometheus:
+    enabled: true
+    replicaCount: 1
+    
+    image:
+      repository: prom/prometheus
+      tag: v2.45.0
+      pullPolicy: IfNotPresent
+      
+    service:
+      type: ClusterIP
+      port: 9090
+      
+    retention: 15d
+    logLevel: "info"
+    
+    persistence:
+      enabled: true
+      storageClass: ""
+      accessModes:
+        - ReadWriteOnce
+      size: 50Gi
+      
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+        
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 65534
+      fsGroup: 65534
+      
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 65534
+      capabilities:
+        drop:
+          - ALL
+          
+    podAnnotations: {}
+    
+  # Grafana configuration
+  grafana:
+    enabled: true
+    replicaCount: 1
+    
+    image:
+      repository: grafana/grafana
+      tag: 10.0.0
+      pullPolicy: IfNotPresent
+      
+    service:
+      type: ClusterIP
+      port: 3000
+      
+    domain: "localhost"
+    rootUrl: "%(protocol)s://%(domain)s:%(http_port)s/"
+    logLevel: "info"
+    
+    persistence:
+      enabled: true
+      storageClass: ""
+      accessModes:
+        - ReadWriteOnce
+      size: 10Gi
+      
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+        
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 472
+      fsGroup: 472
+      
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: false  # Grafana needs write access
+      runAsNonRoot: true
+      runAsUser: 472
+      capabilities:
+        drop:
+          - ALL
+          
+    podAnnotations: {}
+    
+    # Grafana security settings
+    security:
+      adminUser: "admin"
+      adminPassword: "admin"
+      secretKey: "SW2YcwTIb9zpOOhoPsMm"
+      cookieSecure: false
+      allowEmbedding: false
+      strictTransportSecurity: false
+      
+    # User settings
+    users:
+      allowSignUp: false
+      allowOrgCreate: true
+      defaultTheme: "dark"
+      
+    # Authentication settings
+    auth:
+      anonymous:
+        enabled: false
+        orgName: "Main Org."
+        orgRole: "Viewer"
+      github:
+        enabled: false
+        clientId: ""
+        clientSecret: ""
+        allowedOrganizations: ""
+      google:
+        enabled: false
+        clientId: ""
+        clientSecret: ""
+        allowedDomains: ""
+        
+    # SMTP settings
+    smtp:
+      enabled: false
+      host: "localhost:587"
+      user: ""
+      password: ""
+      skipVerify: false
+      fromAddress: "admin@grafana.localhost"
+      fromName: "Grafana"
+      
+    # Alerting settings
+    alerting:
+      enabled: true
+      executeAlerts: true
+      
+    # Tracing settings
+    tracing:
+      jaeger:
+        address: "localhost:6831"
+        
+    # Feature toggles
+    featureToggles: ""
+    defaultTimezone: "browser"
+    
+    # External datasources
+    datasources:
+      loki:
+        enabled: false
+        url: "http://loki:3100"
+      jaeger:
+        enabled: false
+        url: "http://jaeger:16686"
+      elasticsearch:
+        enabled: false
+        url: "http://elasticsearch:9200"
+        index: "logstash-*"
+        version: "7.10.0"
+      influxdb:
+        enabled: false
+        url: "http://influxdb:8086"
+        database: "retrofitlink"
+
+  # AlertManager configuration
+  alertmanager:
+    enabled: true
+    replicaCount: 1
+    
+    image:
+      repository: prom/alertmanager
+      tag: v0.24.0
+      pullPolicy: IfNotPresent
+      
+    service:
+      type: ClusterIP
+      port: 9093
+      
+    retention: "120h"
+    logLevel: "info"
+    
+    persistence:
+      enabled: true
+      storageClass: ""
+      accessModes:
+        - ReadWriteOnce
+      size: 2Gi
+      
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+        
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    extraVolumes: []
+    extraVolumeMounts: []
+    
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 65534
+      fsGroup: 65534
+      
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 65534
+      capabilities:
+        drop:
+          - ALL
+          
+    podAnnotations: {}
+    
+    # Ingress configuration
+    ingress:
+      enabled: false
+      host: "alertmanager.localhost"
+      
+    # Global alerting configuration
+    global:
+      smtpSmarthost: "localhost:587"
+      smtpFrom: "alertmanager@retrofitlink.com"
+      smtpAuthUsername: ""
+      smtpAuthPassword: ""
+      smtpRequireTls: true
+      slackApiUrl: ""
+      pagerdutyUrl: ""
+      opsgenieApiUrl: ""
+      resolveTimeout: "5m"
+      
+    # Routing configuration
+    route:
+      groupBy: "['alertname', 'cluster', 'service']"
+      groupWait: "30s"
+      groupInterval: "5m"
+      repeatInterval: "12h"
+      receiver: "default"
+      
+    # Alert receivers
+    receivers:
+      default:
+        email:
+          enabled: false
+          to: "admin@retrofitlink.com"
+      critical:
+        slack:
+          enabled: false
+          apiUrl: ""
+          channel: "#alerts-critical"
+        pagerduty:
+          enabled: false
+          routingKey: ""
+        email:
+          enabled: false
+          to: "critical@retrofitlink.com"
+      warning:
+        slack:
+          enabled: false
+          apiUrl: ""
+          channel: "#alerts-warning"
+      info:
+        email:
+          enabled: false
+          to: "info@retrofitlink.com"
+      database:
+        slack:
+          enabled: false
+          apiUrl: ""
+          channel: "#database-alerts"
+      blockchain:
+        slack:
+          enabled: false
+          apiUrl: ""
+          channel: "#blockchain-alerts"
+      infrastructure:
+        slack:
+          enabled: false
+          apiUrl: ""
+          channel: "#infrastructure-alerts"
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    
+  hosts:
+    - host: retrofitlink.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+        - path: /api
+          pathType: Prefix
+          service: backend
+        - path: /health
+          pathType: Prefix
+          service: backend
+          
+  tls:
+    - secretName: retrofitlink-tls
+      hosts:
+        - retrofitlink.com
+
+# Security configuration
+security:
+  networkPolicies:
+    enabled: true
+    
+  podSecurityPolicy:
+    enabled: true
+    
+  secrets:
+    - name: app-secrets
+      type: Opaque
+      data: {}  # Populated via external secret management
+      
+# Service account
+serviceAccount:
+  create: true
+  name: retrofitlink
+  annotations: {}
+
+# RBAC
+rbac:
+  create: true
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# Blockchain configuration
+blockchain:
+  replicaCount: 1
+  
+  image:
+    repository: retrofitlink/blockchain
+    pullPolicy: IfNotPresent
+    tag: ""  # defaults to chart appVersion
+    
+  service:
+    type: ClusterIP
+    port: 8545
+    
+  # Blockchain network configuration
+  networkId: 1337
+  chainId: 1337
+  mnemonic: "test test test test test test test test test test test junk"
+  blockTime: 2
+  gasLimit: 9000000
+  gasPrice: 20000000000
+  
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+    
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+      
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+    capabilities:
+      drop:
+        - ALL
+        
+  podAnnotations: {}
+
+# IoT Simulator configuration
+iotSimulator:
+  replicaCount: 2
+  
+  image:
+    repository: retrofitlink/iot-simulator
+    pullPolicy: IfNotPresent
+    tag: ""  # defaults to chart appVersion
+    
+  # Simulation configuration
+  simulationInterval: 30000  # 30 seconds
+  deviceCount: 50
+  dataVariance: 0.2
+  logLevel: "info"
+  sensorTypes:
+    - temperature
+    - humidity
+    - energy_consumption
+    - air_quality
+    
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+    
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+      
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+    capabilities:
+      drop:
+        - ALL
+        
+  podAnnotations: {}
+
+        
+  podAnnotations: {}
+
+# Secrets configuration
+secrets:
+  # MongoDB credentials
+  mongodb:
+    username: "retrofitlink"
+    password: "secure_mongodb_password_change_me"
+  
+  # PostgreSQL credentials
+  postgres:
+    username: "retrofitlink"
+    password: "secure_postgres_password_change_me"
+  
+  # JWT and API keys
+  jwt:
+    secret: "your_jwt_secret_key_change_me_32_chars_min"
+  api:
+    key: "your_api_key_change_me"
+  
+  # Blockchain credentials
+  blockchain:
+    privateKey: "your_blockchain_private_key_change_me"
+    mnemonic: "your twelve word mnemonic phrase goes here change me"
+  
+  # Grafana admin credentials
+  grafana:
+    adminPassword: "secure_grafana_password_change_me"
+  
+  # IoT device credentials
+  iot:
+    deviceToken: "your_iot_device_token_change_me"
+  
+  # TLS certificates
+  tls:
+    enabled: false
+    cert: ""
+    key: ""
+
+# External Secrets Operator configuration
+externalSecrets:
+  enabled: false
+  provider: "aws"  # aws, vault, gcp, azure
+  refreshInterval: "1h"
+  
+  secretStore:
+    name: "retrofitlink-secret-store"
+    kind: "SecretStore"
+  
+  # AWS Secrets Manager configuration
+  aws:
+    region: "us-west-2"
+    role: ""
+    accessKey:
+      secretName: "aws-credentials"
+      key: "access-key-id"
+    secretKey:
+      secretName: "aws-credentials"
+      key: "secret-access-key"
+  
+  # HashiCorp Vault configuration
+  vault:
+    server: "https://vault.example.com"
+    path: "secret"
+    version: "v2"
+    kubernetes:
+      mountPath: "kubernetes"
+      role: "retrofitlink"
+    token:
+      secretName: "vault-token"
+      key: "token"
+  
+  # Google Cloud Secret Manager configuration
+  gcp:
+    projectId: "your-gcp-project"
+    clusterLocation: "us-central1"
+    clusterName: "your-cluster"
+    serviceAccount: true
+    secretKey:
+      secretName: "gcp-credentials"
+      key: "service-account.json"
+  
+  # Azure Key Vault configuration
+  azure:
+    vaultUrl: "https://your-vault.vault.azure.net/"
+    tenantId: "your-tenant-id"
+    clientId: "your-client-id"
+    workloadIdentity: true
+    clientSecret:
+      secretName: "azure-credentials"
+      key: "client-secret"
+  
+  # External secrets data mapping
+  data:
+    - name: "mongodb-password"
+      remoteRef:
+        key: "retrofitlink/mongodb/password"
+    - name: "postgres-password"
+      remoteRef:
+        key: "retrofitlink/postgres/password"
+    - name: "jwt-secret"
+      remoteRef:
+        key: "retrofitlink/jwt/secret"
+    - name: "blockchain-private-key"
+      remoteRef:
+        key: "retrofitlink/blockchain/private-key"

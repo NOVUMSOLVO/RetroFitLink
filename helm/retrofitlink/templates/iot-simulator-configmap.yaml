@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "retrofitlink.fullname" . }}-iot-simulator-config
+  labels:
+    {{- include "retrofitlink.labels" . | nindent 4 }}
+    app.kubernetes.io/component: iot-simulator
+data:
+  SIMULATION_INTERVAL: "{{ .Values.iotSimulator.simulationInterval }}"
+  DEVICE_COUNT: "{{ .Values.iotSimulator.deviceCount }}"
+  DATA_VARIANCE: "{{ .Values.iotSimulator.dataVariance }}"
+  SENSOR_TYPES: "{{ join "," .Values.iotSimulator.sensorTypes }}"
+  LOG_LEVEL: "{{ .Values.iotSimulator.logLevel }}"

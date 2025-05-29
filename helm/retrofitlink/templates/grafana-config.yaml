@@ -1,0 +1,224 @@
+{{- if .Values.monitoring.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "retrofitlink.fullname" . }}-grafana-config
+  labels:
+    {{- include "retrofitlink.labels" . | nindent 4 }}
+data:
+  grafana.ini: |
+    [analytics]
+    check_for_updates = true
+    
+    [grafana_net]
+    url = https://grafana.net
+    
+    [log]
+    mode = console
+    level = {{ .Values.monitoring.grafana.logLevel | default "info" }}
+    
+    [paths]
+    data = /var/lib/grafana/
+    logs = /var/log/grafana
+    plugins = /var/lib/grafana/plugins
+    provisioning = /etc/grafana/provisioning
+    
+    [server]
+    protocol = http
+    http_addr = 0.0.0.0
+    http_port = 3000
+    domain = {{ .Values.monitoring.grafana.domain | default "localhost" }}
+    enforce_domain = false
+    root_url = {{ .Values.monitoring.grafana.rootUrl | default "%(protocol)s://%(domain)s:%(http_port)s/" }}
+    serve_from_sub_path = false
+    
+    [database]
+    type = sqlite3
+    host = 127.0.0.1:3306
+    name = grafana
+    user = root
+    password =
+    url =
+    ssl_mode = disable
+    path = grafana.db
+    max_idle_conn = 2
+    max_open_conn =
+    conn_max_lifetime = 14400
+    log_queries =
+    cache_mode = private
+    
+    [session]
+    provider = file
+    provider_config = sessions
+    cookie_name = grafana_sess
+    cookie_secure = {{ .Values.monitoring.grafana.security.cookieSecure | default "false" }}
+    session_life_time = 86400
+    gc_interval_time = 86400
+    
+    [dataproxy]
+    logging = false
+    timeout = 30
+    send_user_header = false
+    
+    [security]
+    admin_user = {{ .Values.monitoring.grafana.security.adminUser | default "admin" }}
+    admin_password = {{ .Values.monitoring.grafana.security.adminPassword | default "admin" }}
+    secret_key = {{ .Values.monitoring.grafana.security.secretKey | default "SW2YcwTIb9zpOOhoPsMm" }}
+    login_remember_days = 7
+    cookie_username = grafana_user
+    cookie_remember_name = grafana_remember
+    disable_gravatar = false
+    data_source_proxy_whitelist =
+    disable_brute_force_login_protection = false
+    cookie_samesite = lax
+    allow_embedding = {{ .Values.monitoring.grafana.security.allowEmbedding | default "false" }}
+    strict_transport_security = {{ .Values.monitoring.grafana.security.strictTransportSecurity | default "false" }}
+    strict_transport_security_max_age_seconds = 86400
+    strict_transport_security_preload = false
+    strict_transport_security_subdomains = false
+    x_content_type_options = true
+    x_xss_protection = true
+    
+    [snapshots]
+    external_enabled = true
+    external_snapshot_url = https://snapshots-origin.raintank.io
+    external_snapshot_name = Publish to snapshot.raintank.io
+    snapshot_remove_expired = true
+    
+    [dashboards]
+    versions_to_keep = 20
+    min_refresh_interval = 5s
+    default_home_dashboard_path =
+    
+    [users]
+    allow_sign_up = {{ .Values.monitoring.grafana.users.allowSignUp | default "false" }}
+    allow_org_create = {{ .Values.monitoring.grafana.users.allowOrgCreate | default "true" }}
+    auto_assign_org = true
+    auto_assign_org_id = 1
+    auto_assign_org_role = Viewer
+    verify_email_enabled = false
+    login_hint = email or username
+    default_theme = {{ .Values.monitoring.grafana.users.defaultTheme | default "dark" }}
+    external_manage_link_url =
+    external_manage_link_name =
+    external_manage_info =
+    
+    [auth]
+    login_cookie_name = grafana_session
+    login_maximum_inactive_lifetime_duration =
+    login_maximum_lifetime_duration =
+    token_rotation_interval_minutes = 10
+    disable_login_form = false
+    disable_signout_menu = false
+    signout_redirect_url =
+    oauth_auto_login = false
+    api_key_max_seconds_to_live = -1
+    
+    {{- if .Values.monitoring.grafana.auth.anonymous.enabled }}
+    [auth.anonymous]
+    enabled = true
+    org_name = {{ .Values.monitoring.grafana.auth.anonymous.orgName | default "Main Org." }}
+    org_role = {{ .Values.monitoring.grafana.auth.anonymous.orgRole | default "Viewer" }}
+    hide_version = false
+    {{- end }}
+    
+    {{- if .Values.monitoring.grafana.auth.github.enabled }}
+    [auth.github]
+    enabled = true
+    allow_sign_up = true
+    client_id = {{ .Values.monitoring.grafana.auth.github.clientId }}
+    client_secret = {{ .Values.monitoring.grafana.auth.github.clientSecret }}
+    scopes = user:email,read:org
+    auth_url = https://github.com/login/oauth/authorize
+    token_url = https://github.com/login/oauth/access_token
+    api_url = https://api.github.com/user
+    allowed_organizations = {{ .Values.monitoring.grafana.auth.github.allowedOrganizations | default "" }}
+    {{- end }}
+    
+    {{- if .Values.monitoring.grafana.auth.google.enabled }}
+    [auth.google]
+    enabled = true
+    allow_sign_up = true
+    client_id = {{ .Values.monitoring.grafana.auth.google.clientId }}
+    client_secret = {{ .Values.monitoring.grafana.auth.google.clientSecret }}
+    scopes = https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email
+    auth_url = https://accounts.google.com/o/oauth2/auth
+    token_url = https://accounts.google.com/o/oauth2/token
+    api_url = https://www.googleapis.com/oauth2/v1/userinfo
+    allowed_domains = {{ .Values.monitoring.grafana.auth.google.allowedDomains | default "" }}
+    {{- end }}
+    
+    [smtp]
+    enabled = {{ .Values.monitoring.grafana.smtp.enabled | default "false" }}
+    {{- if .Values.monitoring.grafana.smtp.enabled }}
+    host = {{ .Values.monitoring.grafana.smtp.host }}
+    user = {{ .Values.monitoring.grafana.smtp.user }}
+    password = {{ .Values.monitoring.grafana.smtp.password }}
+    cert_file =
+    key_file =
+    skip_verify = {{ .Values.monitoring.grafana.smtp.skipVerify | default "false" }}
+    from_address = {{ .Values.monitoring.grafana.smtp.fromAddress }}
+    from_name = {{ .Values.monitoring.grafana.smtp.fromName | default "Grafana" }}
+    ehlo_identity = dashboard.example.com
+    {{- end }}
+    
+    [alerting]
+    enabled = {{ .Values.monitoring.grafana.alerting.enabled | default "true" }}
+    execute_alerts = {{ .Values.monitoring.grafana.alerting.executeAlerts | default "true" }}
+    error_or_timeout = alerting
+    nodata_or_nullvalues = no_data
+    concurrent_render_limit = 5
+    evaluation_timeout_seconds = 30
+    notification_timeout_seconds = 30
+    max_attempts = 3
+    min_interval_seconds = 1
+    
+    [metrics]
+    enabled = true
+    interval_seconds = 10
+    
+    [metrics.graphite]
+    address =
+    prefix = prod.grafana.%(instance_name)s.
+    
+    [tracing.jaeger]
+    address = {{ .Values.monitoring.grafana.tracing.jaeger.address | default "localhost:6831" }}
+    always_included_tag = tag1:value1
+    sampler_type = const
+    sampler_param = 1
+    zipkin_propagation = false
+    disable_shared_zipkin_spans = false
+    
+    [external_image_storage]
+    provider =
+    
+    [external_image_storage.s3]
+    endpoint =
+    bucket =
+    region =
+    path =
+    access_key =
+    secret_key =
+    
+    [rendering]
+    server_url =
+    callback_url =
+    concurrent_render_request_limit = 30
+    
+    [enterprise]
+    license_path =
+    
+    [feature_toggles]
+    enable = {{ .Values.monitoring.grafana.featureToggles | default "" }}
+    
+    [date_formats]
+    full_date = MMM Do, YYYY hh:mm:ss a
+    interval_second = hh:mm:ss a
+    interval_minute = hh:mm a
+    interval_hour = MMM DD hh:mm a
+    interval_day = MMM DD
+    interval_month = MMM YYYY
+    interval_year = YYYY
+    use_browser_locale = false
+    default_timezone = {{ .Values.monitoring.grafana.defaultTimezone | default "browser" }}
+{{- end }}

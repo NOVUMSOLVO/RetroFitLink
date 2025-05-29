@@ -1,0 +1,22 @@
+{{- if and .Values.monitoring.alertmanager.enabled .Values.monitoring.alertmanager.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "retrofitlink.fullname" . }}-alertmanager-pvc
+  labels:
+    {{- include "retrofitlink.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alertmanager
+spec:
+  accessModes:
+    - {{ .Values.monitoring.alertmanager.persistence.accessMode | default "ReadWriteOnce" }}
+  resources:
+    requests:
+      storage: {{ .Values.monitoring.alertmanager.persistence.size | default "2Gi" }}
+  {{- if .Values.monitoring.alertmanager.persistence.storageClass }}
+  {{- if (eq "-" .Values.monitoring.alertmanager.persistence.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.monitoring.alertmanager.persistence.storageClass }}
+  {{- end }}
+  {{- end }}
+{{- end }}

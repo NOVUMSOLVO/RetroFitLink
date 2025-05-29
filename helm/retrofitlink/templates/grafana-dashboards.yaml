@@ -1,0 +1,289 @@
+{{- if .Values.monitoring.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "retrofitlink.fullname" . }}-grafana-dashboards
+  labels:
+    {{- include "retrofitlink.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  retrofitlink-overview.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "RetroFitLink Overview",
+        "tags": ["retrofitlink", "overview"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "System Overview",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "up{job=~\".*retrofitlink.*\"}",
+                "legendFormat": "Services Up"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "displayMode": "basic"
+                }
+              }
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "id": 2,
+            "title": "Request Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(http_requests_total{job=~\".*retrofitlink.*\"}[5m])",
+                "legendFormat": "{{`{{method}} {{status}}`}}"
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 12,
+              "y": 0
+            }
+          },
+          {
+            "id": 3,
+            "title": "Response Time",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=~\".*retrofitlink.*\"}[5m]))",
+                "legendFormat": "95th percentile"
+              },
+              {
+                "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job=~\".*retrofitlink.*\"}[5m]))",
+                "legendFormat": "50th percentile"
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 24,
+              "x": 0,
+              "y": 8
+            }
+          },
+          {
+            "id": 4,
+            "title": "Error Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(http_requests_total{job=~\".*retrofitlink.*\",status=~\"5..\"}[5m])",
+                "legendFormat": "5xx errors"
+              },
+              {
+                "expr": "rate(http_requests_total{job=~\".*retrofitlink.*\",status=~\"4..\"}[5m])",
+                "legendFormat": "4xx errors"
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 0,
+              "y": 16
+            }
+          },
+          {
+            "id": 5,
+            "title": "Memory Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "process_resident_memory_bytes{job=~\".*retrofitlink.*\"}",
+                "legendFormat": "{{`{{instance}}`}}"
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 12,
+              "y": 16
+            }
+          }
+        ],
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "refresh": "30s"
+      }
+    }
+  
+  retrofitlink-kubernetes.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "RetroFitLink Kubernetes",
+        "tags": ["retrofitlink", "kubernetes"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "Pod Status",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "kube_pod_status_phase{namespace=\"{{ .Release.Namespace }}\"}",
+                "legendFormat": "{{`{{phase}}`}}"
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "id": 2,
+            "title": "CPU Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(container_cpu_usage_seconds_total{namespace=\"{{ .Release.Namespace }}\"}[5m])",
+                "legendFormat": "{{`{{pod}}`}}"
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 12,
+              "y": 0
+            }
+          },
+          {
+            "id": 3,
+            "title": "Memory Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "container_memory_usage_bytes{namespace=\"{{ .Release.Namespace }}\"}",
+                "legendFormat": "{{`{{pod}}`}}"
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 0,
+              "y": 8
+            }
+          },
+          {
+            "id": 4,
+            "title": "Network I/O",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(container_network_receive_bytes_total{namespace=\"{{ .Release.Namespace }}\"}[5m])",
+                "legendFormat": "{{`{{pod}} - received`}}"
+              },
+              {
+                "expr": "rate(container_network_transmit_bytes_total{namespace=\"{{ .Release.Namespace }}\"}[5m])",
+                "legendFormat": "{{`{{pod}} - transmitted`}}"
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 12,
+              "y": 8
+            }
+          }
+        ],
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "refresh": "30s"
+      }
+    }
+  
+  retrofitlink-blockchain.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "RetroFitLink Blockchain",
+        "tags": ["retrofitlink", "blockchain"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "Transaction Count",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "blockchain_transactions_total",
+                "legendFormat": "Total Transactions"
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 8,
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "id": 2,
+            "title": "Gas Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(blockchain_gas_used_total[5m])",
+                "legendFormat": "Gas per second"
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 8,
+              "x": 8,
+              "y": 0
+            }
+          },
+          {
+            "id": 3,
+            "title": "Block Time",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "blockchain_block_time_seconds",
+                "legendFormat": "Block time"
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 8,
+              "x": 16,
+              "y": 0
+            }
+          }
+        ],
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "refresh": "30s"
+      }
+    }
+{{- end }}

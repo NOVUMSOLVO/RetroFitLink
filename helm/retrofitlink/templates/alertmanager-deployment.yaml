@@ -1,0 +1,113 @@
+{{- if .Values.monitoring.alertmanager.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "retrofitlink.fullname" . }}-alertmanager
+  labels:
+    {{- include "retrofitlink.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alertmanager
+spec:
+  replicas: {{ .Values.monitoring.alertmanager.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "retrofitlink.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: alertmanager
+  template:
+    metadata:
+      labels:
+        {{- include "retrofitlink.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: alertmanager
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/alertmanager-config.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "retrofitlink.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.monitoring.alertmanager.podSecurityContext | nindent 8 }}
+      containers:
+        - name: alertmanager
+          securityContext:
+            {{- toYaml .Values.monitoring.alertmanager.securityContext | nindent 12 }}
+          image: "{{ .Values.monitoring.alertmanager.image.repository }}:{{ .Values.monitoring.alertmanager.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.monitoring.alertmanager.image.pullPolicy }}
+          args:
+            - '--config.file=/etc/alertmanager/alertmanager.yml'
+            - '--storage.path=/alertmanager'
+            - '--web.console.libraries=/etc/alertmanager/console_libraries'
+            - '--web.console.templates=/etc/alertmanager/consoles'
+            - '--web.external-url=http://{{ .Values.monitoring.alertmanager.ingress.host | default "localhost" }}:9093'
+            - '--cluster.listen-address=0.0.0.0:9094'
+            {{- if .Values.monitoring.alertmanager.retention }}
+            - '--data.retention={{ .Values.monitoring.alertmanager.retention }}'
+            {{- end }}
+            {{- if .Values.monitoring.alertmanager.logLevel }}
+            - '--log.level={{ .Values.monitoring.alertmanager.logLevel }}'
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 9093
+              protocol: TCP
+            - name: cluster
+              containerPort: 9094
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 4
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.monitoring.alertmanager.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+            - name: storage
+              mountPath: /alertmanager
+            {{- if .Values.monitoring.alertmanager.extraVolumeMounts }}
+            {{- toYaml .Values.monitoring.alertmanager.extraVolumeMounts | nindent 12 }}
+            {{- end }}
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "retrofitlink.fullname" . }}-alertmanager-config
+        - name: storage
+          {{- if .Values.monitoring.alertmanager.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "retrofitlink.fullname" . }}-alertmanager-pvc
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.monitoring.alertmanager.extraVolumes }}
+        {{- toYaml .Values.monitoring.alertmanager.extraVolumes | nindent 8 }}
+        {{- end }}
+      {{- with .Values.monitoring.alertmanager.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.monitoring.alertmanager.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.monitoring.alertmanager.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

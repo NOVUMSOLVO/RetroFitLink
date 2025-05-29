@@ -1,0 +1,362 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger-collector
+  namespace: retrofitlink-prod
+  labels:
+    app: jaeger
+    component: collector
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: jaeger
+      component: collector
+  template:
+    metadata:
+      labels:
+        app: jaeger
+        component: collector
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "14269"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+      - name: jaeger-collector
+        image: jaegertracing/jaeger-collector:1.50.0
+        imagePullPolicy: IfNotPresent
+        args:
+        - --config-file=/etc/jaeger/jaeger-collector.yaml
+        - --sampling.strategies-file=/etc/jaeger/sampling-strategies.json
+        ports:
+        - containerPort: 14250
+          name: grpc
+          protocol: TCP
+        - containerPort: 14268
+          name: http
+          protocol: TCP
+        - containerPort: 9411
+          name: zipkin
+          protocol: TCP
+        - containerPort: 14269
+          name: admin
+          protocol: TCP
+        env:
+        - name: SPAN_STORAGE_TYPE
+          value: elasticsearch
+        - name: ES_SERVER_URLS
+          value: http://elasticsearch:9200
+        - name: ES_INDEX_PREFIX
+          value: jaeger
+        - name: ES_TAGS_AS_FIELDS_ALL
+          value: "true"
+        - name: COLLECTOR_ZIPKIN_HOST_PORT
+          value: ":9411"
+        - name: COLLECTOR_OTLP_ENABLED
+          value: "true"
+        - name: METRICS_STORAGE_TYPE
+          value: prometheus
+        - name: PROMETHEUS_SERVER_URL
+          value: http://prometheus:9090
+        volumeMounts:
+        - name: config
+          mountPath: /etc/jaeger
+          readOnly: true
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 14269
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 14269
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: config
+        configMap:
+          name: jaeger-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-collector
+  namespace: retrofitlink-prod
+  labels:
+    app: jaeger
+    component: collector
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "14269"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: grpc
+    port: 14250
+    targetPort: 14250
+    protocol: TCP
+  - name: http
+    port: 14268
+    targetPort: 14268
+    protocol: TCP
+  - name: zipkin
+    port: 9411
+    targetPort: 9411
+    protocol: TCP
+  - name: admin
+    port: 14269
+    targetPort: 14269
+    protocol: TCP
+  selector:
+    app: jaeger
+    component: collector
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger-query
+  namespace: retrofitlink-prod
+  labels:
+    app: jaeger
+    component: query
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: jaeger
+      component: query
+  template:
+    metadata:
+      labels:
+        app: jaeger
+        component: query
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "16687"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+      - name: jaeger-query
+        image: jaegertracing/jaeger-query:1.50.0
+        imagePullPolicy: IfNotPresent
+        args:
+        - --config-file=/etc/jaeger/jaeger-query.yaml
+        ports:
+        - containerPort: 16686
+          name: http
+          protocol: TCP
+        - containerPort: 16685
+          name: grpc
+          protocol: TCP
+        - containerPort: 16687
+          name: admin
+          protocol: TCP
+        env:
+        - name: SPAN_STORAGE_TYPE
+          value: elasticsearch
+        - name: ES_SERVER_URLS
+          value: http://elasticsearch:9200
+        - name: ES_INDEX_PREFIX
+          value: jaeger
+        - name: QUERY_BASE_PATH
+          value: /
+        - name: METRICS_STORAGE_TYPE
+          value: prometheus
+        - name: PROMETHEUS_SERVER_URL
+          value: http://prometheus:9090
+        volumeMounts:
+        - name: config
+          mountPath: /etc/jaeger
+          readOnly: true
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 16687
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 16687
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: config
+        configMap:
+          name: jaeger-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-query
+  namespace: retrofitlink-prod
+  labels:
+    app: jaeger
+    component: query
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "16687"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 16686
+    targetPort: 16686
+    protocol: TCP
+  - name: grpc
+    port: 16685
+    targetPort: 16685
+    protocol: TCP
+  - name: admin
+    port: 16687
+    targetPort: 16687
+    protocol: TCP
+  selector:
+    app: jaeger
+    component: query
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: jaeger-agent
+  namespace: retrofitlink-prod
+  labels:
+    app: jaeger
+    component: agent
+spec:
+  selector:
+    matchLabels:
+      app: jaeger
+      component: agent
+  template:
+    metadata:
+      labels:
+        app: jaeger
+        component: agent
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "14271"
+        prometheus.io/path: "/metrics"
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+      - name: jaeger-agent
+        image: jaegertracing/jaeger-agent:1.50.0
+        imagePullPolicy: IfNotPresent
+        args:
+        - --config-file=/etc/jaeger/jaeger-agent.yaml
+        - --reporter.grpc.host-port=jaeger-collector:14250
+        ports:
+        - containerPort: 5775
+          name: zipkin-compact
+          protocol: UDP
+        - containerPort: 6831
+          name: jaeger-compact
+          protocol: UDP
+        - containerPort: 6832
+          name: jaeger-binary
+          protocol: UDP
+        - containerPort: 14271
+          name: admin
+          protocol: TCP
+        env:
+        - name: REPORTER_GRPC_HOST_PORT
+          value: jaeger-collector:14250
+        volumeMounts:
+        - name: config
+          mountPath: /etc/jaeger
+          readOnly: true
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 14271
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 14271
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: config
+        configMap:
+          name: jaeger-config
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+      - effect: NoExecute
+        operator: Exists

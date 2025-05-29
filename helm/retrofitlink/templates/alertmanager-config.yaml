@@ -1,0 +1,272 @@
+{{- if .Values.monitoring.alertmanager.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "retrofitlink.fullname" . }}-alertmanager-config
+  labels:
+    {{- include "retrofitlink.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alertmanager
+data:
+  alertmanager.yml: |
+    global:
+      # Global configuration
+      smtp_smarthost: {{ .Values.monitoring.alertmanager.global.smtpSmarthost | default "localhost:587" | quote }}
+      smtp_from: {{ .Values.monitoring.alertmanager.global.smtpFrom | default "alertmanager@retrofitlink.com" | quote }}
+      smtp_auth_username: {{ .Values.monitoring.alertmanager.global.smtpAuthUsername | default "" | quote }}
+      smtp_auth_password: {{ .Values.monitoring.alertmanager.global.smtpAuthPassword | default "" | quote }}
+      smtp_require_tls: {{ .Values.monitoring.alertmanager.global.smtpRequireTls | default true }}
+      
+      # Slack global config
+      {{- if .Values.monitoring.alertmanager.global.slackApiUrl }}
+      slack_api_url: {{ .Values.monitoring.alertmanager.global.slackApiUrl | quote }}
+      {{- end }}
+      
+      # PagerDuty global config
+      {{- if .Values.monitoring.alertmanager.global.pagerdutyUrl }}
+      pagerduty_url: {{ .Values.monitoring.alertmanager.global.pagerdutyUrl | quote }}
+      {{- end }}
+      
+      # OpsGenie global config
+      {{- if .Values.monitoring.alertmanager.global.opsgenieApiUrl }}
+      opsgenie_api_url: {{ .Values.monitoring.alertmanager.global.opsgenieApiUrl | quote }}
+      {{- end }}
+      
+      resolve_timeout: {{ .Values.monitoring.alertmanager.global.resolveTimeout | default "5m" }}
+
+    # Templates for alert notifications
+    templates:
+      - '/etc/alertmanager/templates/*.tmpl'
+
+    # The route tree for alert processing
+    route:
+      group_by: {{ .Values.monitoring.alertmanager.route.groupBy | default "['alertname', 'cluster', 'service']" }}
+      group_wait: {{ .Values.monitoring.alertmanager.route.groupWait | default "30s" }}
+      group_interval: {{ .Values.monitoring.alertmanager.route.groupInterval | default "5m" }}
+      repeat_interval: {{ .Values.monitoring.alertmanager.route.repeatInterval | default "12h" }}
+      receiver: {{ .Values.monitoring.alertmanager.route.receiver | default "default" }}
+      
+      routes:
+        # Critical alerts go to PagerDuty and Slack
+        - match:
+            severity: critical
+          receiver: critical-alerts
+          group_wait: 10s
+          group_interval: 10s
+          repeat_interval: 1h
+          
+        # Warning alerts go to Slack
+        - match:
+            severity: warning
+          receiver: warning-alerts
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 4h
+          
+        # Info alerts go to email
+        - match:
+            severity: info
+          receiver: info-alerts
+          group_wait: 5m
+          group_interval: 10m
+          repeat_interval: 24h
+          
+        # Database alerts
+        - match_re:
+            service: ".*database.*|.*mongodb.*|.*postgres.*"
+          receiver: database-alerts
+          group_wait: 15s
+          group_interval: 1m
+          repeat_interval: 2h
+          
+        # Blockchain alerts
+        - match_re:
+            service: ".*blockchain.*"
+          receiver: blockchain-alerts
+          group_wait: 30s
+          group_interval: 2m
+          repeat_interval: 6h
+          
+        # Infrastructure alerts
+        - match_re:
+            alertname: ".*Node.*|.*Disk.*|.*Memory.*|.*CPU.*"
+          receiver: infrastructure-alerts
+          group_wait: 20s
+          group_interval: 3m
+          repeat_interval: 8h
+
+    # Alert receivers configuration
+    receivers:
+      # Default receiver
+      - name: 'default'
+        {{- if .Values.monitoring.alertmanager.receivers.default.email.enabled }}
+        email_configs:
+          - to: {{ .Values.monitoring.alertmanager.receivers.default.email.to | quote }}
+            subject: 'RetroFitLink Alert: {{`{{ .GroupLabels.alertname }}`}}'
+            body: |
+              {{`{{ range .Alerts }}`}}
+              Alert: {{`{{ .Annotations.summary }}`}}
+              Description: {{`{{ .Annotations.description }}`}}
+              Labels: {{`{{ range .Labels.SortedPairs }} - {{ .Name }} = {{ .Value }}{{ end }}`}}
+              {{`{{ end }}`}}
+        {{- end }}
+
+      # Critical alerts
+      - name: 'critical-alerts'
+        {{- if .Values.monitoring.alertmanager.receivers.critical.slack.enabled }}
+        slack_configs:
+          - api_url: {{ .Values.monitoring.alertmanager.receivers.critical.slack.apiUrl | quote }}
+            channel: {{ .Values.monitoring.alertmanager.receivers.critical.slack.channel | default "#alerts-critical" | quote }}
+            username: 'AlertManager'
+            icon_emoji: ':fire:'
+            title: 'CRITICAL: RetroFitLink Alert'
+            text: |
+              {{`{{ range .Alerts }}`}}
+              *Alert:* {{`{{ .Annotations.summary }}`}}
+              *Description:* {{`{{ .Annotations.description }}`}}
+              *Severity:* {{`{{ .Labels.severity }}`}}
+              *Service:* {{`{{ .Labels.service }}`}}
+              {{`{{ end }}`}}
+            send_resolved: true
+        {{- end }}
+        {{- if .Values.monitoring.alertmanager.receivers.critical.pagerduty.enabled }}
+        pagerduty_configs:
+          - routing_key: {{ .Values.monitoring.alertmanager.receivers.critical.pagerduty.routingKey | quote }}
+            description: 'RetroFitLink Critical Alert: {{`{{ .GroupLabels.alertname }}`}}'
+            severity: 'critical'
+            details:
+              summary: '{{`{{ .CommonAnnotations.summary }}`}}'
+              description: '{{`{{ .CommonAnnotations.description }}`}}'
+        {{- end }}
+        {{- if .Values.monitoring.alertmanager.receivers.critical.email.enabled }}
+        email_configs:
+          - to: {{ .Values.monitoring.alertmanager.receivers.critical.email.to | quote }}
+            subject: 'CRITICAL: RetroFitLink Alert - {{`{{ .GroupLabels.alertname }}`}}'
+            body: |
+              <h2>Critical Alert from RetroFitLink</h2>
+              {{`{{ range .Alerts }}`}}
+              <h3>{{`{{ .Annotations.summary }}`}}</h3>
+              <p><strong>Description:</strong> {{`{{ .Annotations.description }}`}}</p>
+              <p><strong>Labels:</strong></p>
+              <ul>
+              {{`{{ range .Labels.SortedPairs }}`}}
+              <li>{{`{{ .Name }}`}} = {{`{{ .Value }}`}}</li>
+              {{`{{ end }}`}}
+              </ul>
+              <p><strong>Started at:</strong> {{`{{ .StartsAt }}`}}</p>
+              {{`{{ end }}`}}
+        {{- end }}
+
+      # Warning alerts
+      - name: 'warning-alerts'
+        {{- if .Values.monitoring.alertmanager.receivers.warning.slack.enabled }}
+        slack_configs:
+          - api_url: {{ .Values.monitoring.alertmanager.receivers.warning.slack.apiUrl | quote }}
+            channel: {{ .Values.monitoring.alertmanager.receivers.warning.slack.channel | default "#alerts-warning" | quote }}
+            username: 'AlertManager'
+            icon_emoji: ':warning:'
+            title: 'WARNING: RetroFitLink Alert'
+            text: |
+              {{`{{ range .Alerts }}`}}
+              *Alert:* {{`{{ .Annotations.summary }}`}}
+              *Description:* {{`{{ .Annotations.description }}`}}
+              *Severity:* {{`{{ .Labels.severity }}`}}
+              *Service:* {{`{{ .Labels.service }}`}}
+              {{`{{ end }}`}}
+            send_resolved: true
+        {{- end }}
+
+      # Info alerts
+      - name: 'info-alerts'
+        {{- if .Values.monitoring.alertmanager.receivers.info.email.enabled }}
+        email_configs:
+          - to: {{ .Values.monitoring.alertmanager.receivers.info.email.to | quote }}
+            subject: 'INFO: RetroFitLink Alert - {{`{{ .GroupLabels.alertname }}`}}'
+            body: |
+              {{`{{ range .Alerts }}`}}
+              Alert: {{`{{ .Annotations.summary }}`}}
+              Description: {{`{{ .Annotations.description }}`}}
+              Labels: {{`{{ range .Labels.SortedPairs }} - {{ .Name }} = {{ .Value }}{{ end }}`}}
+              {{`{{ end }}`}}
+        {{- end }}
+
+      # Database alerts
+      - name: 'database-alerts'
+        {{- if .Values.monitoring.alertmanager.receivers.database.slack.enabled }}
+        slack_configs:
+          - api_url: {{ .Values.monitoring.alertmanager.receivers.database.slack.apiUrl | quote }}
+            channel: {{ .Values.monitoring.alertmanager.receivers.database.slack.channel | default "#database-alerts" | quote }}
+            username: 'AlertManager'
+            icon_emoji: ':database:'
+            title: 'DATABASE: RetroFitLink Alert'
+            text: |
+              {{`{{ range .Alerts }}`}}
+              *Alert:* {{`{{ .Annotations.summary }}`}}
+              *Database:* {{`{{ .Labels.service }}`}}
+              *Description:* {{`{{ .Annotations.description }}`}}
+              {{`{{ end }}`}}
+        {{- end }}
+
+      # Blockchain alerts
+      - name: 'blockchain-alerts'
+        {{- if .Values.monitoring.alertmanager.receivers.blockchain.slack.enabled }}
+        slack_configs:
+          - api_url: {{ .Values.monitoring.alertmanager.receivers.blockchain.slack.apiUrl | quote }}
+            channel: {{ .Values.monitoring.alertmanager.receivers.blockchain.slack.channel | default "#blockchain-alerts" | quote }}
+            username: 'AlertManager'
+            icon_emoji: ':link:'
+            title: 'BLOCKCHAIN: RetroFitLink Alert'
+            text: |
+              {{`{{ range .Alerts }}`}}
+              *Alert:* {{`{{ .Annotations.summary }}`}}
+              *Network:* {{`{{ .Labels.network }}`}}
+              *Description:* {{`{{ .Annotations.description }}`}}
+              {{`{{ end }}`}}
+        {{- end }}
+
+      # Infrastructure alerts
+      - name: 'infrastructure-alerts'
+        {{- if .Values.monitoring.alertmanager.receivers.infrastructure.slack.enabled }}
+        slack_configs:
+          - api_url: {{ .Values.monitoring.alertmanager.receivers.infrastructure.slack.apiUrl | quote }}
+            channel: {{ .Values.monitoring.alertmanager.receivers.infrastructure.slack.channel | default "#infrastructure-alerts" | quote }}
+            username: 'AlertManager'
+            icon_emoji: ':computer:'
+            title: 'INFRASTRUCTURE: RetroFitLink Alert'
+            text: |
+              {{`{{ range .Alerts }}`}}
+              *Alert:* {{`{{ .Annotations.summary }}`}}
+              *Node:* {{`{{ .Labels.instance }}`}}
+              *Description:* {{`{{ .Annotations.description }}`}}
+              {{`{{ end }}`}}
+        {{- end }}
+
+    # Inhibition rules to prevent alert spam
+    inhibit_rules:
+      # Inhibit any warning-level alert if the same alert is already firing as critical
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'cluster', 'service']
+      
+      # Inhibit info alerts if warning is active
+      - source_match:
+          severity: 'warning'
+        target_match:
+          severity: 'info'
+        equal: ['alertname', 'cluster', 'service']
+      
+      # Inhibit specific database connection alerts if database is down
+      - source_match:
+          alertname: 'DatabaseDown'
+        target_match_re:
+          alertname: 'DatabaseConnection.*'
+        equal: ['service']
+      
+      # Inhibit service alerts if node is down
+      - source_match:
+          alertname: 'NodeDown'
+        target_match_re:
+          alertname: 'Service.*'
+        equal: ['instance']
+{{- end }}

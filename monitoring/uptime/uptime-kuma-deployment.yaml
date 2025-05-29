@@ -1,0 +1,183 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: uptime-kuma
+  namespace: retrofitlink-prod
+  labels:
+    app: uptime-kuma
+    component: uptime-monitoring
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: uptime-kuma
+  template:
+    metadata:
+      labels:
+        app: uptime-kuma
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: uptime-kuma
+        image: louislam/uptime-kuma:1.23.8
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3001
+          name: http
+          protocol: TCP
+        env:
+        - name: UPTIME_KUMA_PORT
+          value: "3001"
+        - name: NODE_ENV
+          value: "production"
+        - name: DATA_DIR
+          value: "/app/data"
+        # Environment variables for notifications
+        - name: SLACK_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              name: uptime-kuma-secrets
+              key: slack-webhook-url
+              optional: true
+        - name: SMTP_HOST
+          valueFrom:
+            secretKeyRef:
+              name: uptime-kuma-secrets
+              key: smtp-host
+              optional: true
+        - name: SMTP_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: uptime-kuma-secrets
+              key: smtp-username
+              optional: true
+        - name: SMTP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: uptime-kuma-secrets
+              key: smtp-password
+              optional: true
+        - name: PAGERDUTY_INTEGRATION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: uptime-kuma-secrets
+              key: pagerduty-integration-key
+              optional: true
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3001
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3001
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: uptime-kuma-data
+      - name: config
+        configMap:
+          name: uptime-kuma-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: uptime-kuma
+  namespace: retrofitlink-prod
+  labels:
+    app: uptime-kuma
+    component: uptime-monitoring
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 3001
+    targetPort: 3001
+    protocol: TCP
+  selector:
+    app: uptime-kuma
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: uptime-kuma-data
+  namespace: retrofitlink-prod
+  labels:
+    app: uptime-kuma
+    component: uptime-monitoring
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: gp2
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: uptime-kuma-ingress
+  namespace: retrofitlink-prod
+  labels:
+    app: uptime-kuma
+    component: uptime-monitoring
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/websocket-services: "uptime-kuma"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+spec:
+  tls:
+  - hosts:
+    - status.retrofitlink.example.com
+    secretName: uptime-kuma-tls
+  rules:
+  - host: status.retrofitlink.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: uptime-kuma
+            port:
+              number: 3001

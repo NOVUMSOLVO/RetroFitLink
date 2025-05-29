@@ -54,6 +54,20 @@ const userSchema = new mongoose.Schema({
     default: 1
   },
   
+  // Multi-Factor Authentication fields
+  mfaSecret: {
+    type: String,
+    select: false
+  },
+  mfaEnabled: {
+    type: Boolean,
+    default: false
+  },
+  mfaBackupCodes: {
+    type: [String],
+    select: false
+  },
+  
   // Audit fields
   lastLogin: {
     type: Date

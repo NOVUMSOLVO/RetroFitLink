@@ -1,0 +1,218 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: uptime-kuma-config
+  namespace: retrofitlink-prod
+  labels:
+    app: uptime-kuma
+    component: uptime-monitoring
+data:
+  monitors.json: |
+    {
+      "monitors": [
+        {
+          "name": "RetroFitLink Frontend",
+          "type": "http",
+          "url": "https://retrofitlink.example.com",
+          "method": "GET",
+          "interval": 60,
+          "timeout": 30,
+          "retryInterval": 60,
+          "maxretries": 3,
+          "keyword": "RetroFit",
+          "httpBodyEncoding": "json",
+          "tags": ["frontend", "production"],
+          "notification": true,
+          "active": true
+        },
+        {
+          "name": "Backend API Health",
+          "type": "http",
+          "url": "https://api.retrofitlink.example.com/health",
+          "method": "GET",
+          "interval": 30,
+          "timeout": 15,
+          "retryInterval": 30,
+          "maxretries": 3,
+          "expectedStatusCodes": ["200"],
+          "tags": ["backend", "api", "health"],
+          "notification": true,
+          "active": true
+        },
+        {
+          "name": "Backend API Auth",
+          "type": "http",
+          "url": "https://api.retrofitlink.example.com/api/auth/status",
+          "method": "GET",
+          "interval": 300,
+          "timeout": 30,
+          "retryInterval": 60,
+          "maxretries": 2,
+          "expectedStatusCodes": ["200", "401"],
+          "tags": ["backend", "auth"],
+          "notification": true,
+          "active": true
+        },
+        {
+          "name": "MongoDB Connection",
+          "type": "port",
+          "hostname": "mongodb",
+          "port": 27017,
+          "interval": 120,
+          "timeout": 15,
+          "retryInterval": 60,
+          "maxretries": 3,
+          "tags": ["database", "mongodb"],
+          "notification": true,
+          "active": true
+        },
+        {
+          "name": "Blockchain Service",
+          "type": "http",
+          "url": "http://blockchain-service:3001/health",
+          "method": "GET",
+          "interval": 180,
+          "timeout": 30,
+          "retryInterval": 120,
+          "maxretries": 2,
+          "tags": ["blockchain", "service"],
+          "notification": true,
+          "active": true
+        },
+        {
+          "name": "IoT Simulator",
+          "type": "http",
+          "url": "http://iot-simulator:3002/health",
+          "method": "GET",
+          "interval": 300,
+          "timeout": 20,
+          "retryInterval": 120,
+          "maxretries": 2,
+          "tags": ["iot", "simulator"],
+          "notification": false,
+          "active": true
+        },
+        {
+          "name": "Prometheus Metrics",
+          "type": "http",
+          "url": "http://prometheus:9090/-/healthy",
+          "method": "GET",
+          "interval": 180,
+          "timeout": 15,
+          "retryInterval": 60,
+          "maxretries": 3,
+          "tags": ["monitoring", "prometheus"],
+          "notification": true,
+          "active": true
+        },
+        {
+          "name": "Grafana Dashboard",
+          "type": "http",
+          "url": "http://grafana:3000/api/health",
+          "method": "GET",
+          "interval": 300,
+          "timeout": 20,
+          "retryInterval": 120,
+          "maxretries": 2,
+          "tags": ["monitoring", "grafana"],
+          "notification": true,
+          "active": true
+        },
+        {
+          "name": "Elasticsearch Cluster",
+          "type": "http",
+          "url": "http://elasticsearch:9200/_cluster/health",
+          "method": "GET",
+          "interval": 120,
+          "timeout": 30,
+          "retryInterval": 60,
+          "maxretries": 3,
+          "keyword": "green",
+          "tags": ["logging", "elasticsearch"],
+          "notification": true,
+          "active": true
+        },
+        {
+          "name": "Jaeger Tracing",
+          "type": "http",
+          "url": "http://jaeger-query:16687/",
+          "method": "GET",
+          "interval": 300,
+          "timeout": 20,
+          "retryInterval": 120,
+          "maxretries": 2,
+          "tags": ["tracing", "jaeger"],
+          "notification": true,
+          "active": true
+        }
+      ]
+    }
+  
+  notifications.json: |
+    {
+      "notifications": [
+        {
+          "name": "Slack Critical",
+          "type": "slack",
+          "isDefault": true,
+          "applyExisting": true,
+          "webhookURL": "${SLACK_WEBHOOK_URL}",
+          "channel": "#retrofitlink-alerts",
+          "username": "Uptime Kuma",
+          "iconEmoji": ":warning:",
+          "title": "RetroFitLink {{status}} Alert",
+          "message": "{{name}} is {{status}}\nTime: {{time}}\nMessage: {{msg}}",
+          "active": true
+        },
+        {
+          "name": "Email Alerts",
+          "type": "smtp",
+          "isDefault": false,
+          "applyExisting": false,
+          "smtpHost": "${SMTP_HOST}",
+          "smtpPort": 587,
+          "smtpSecure": false,
+          "smtpUsername": "${SMTP_USERNAME}",
+          "smtpPassword": "${SMTP_PASSWORD}",
+          "emailFrom": "alerts@retrofitlink.example.com",
+          "emailTo": "ops-team@retrofitlink.example.com",
+          "emailSubject": "RetroFitLink {{status}} - {{name}}",
+          "emailBody": "Monitor: {{name}}\nStatus: {{status}}\nTime: {{time}}\nURL: {{url}}\nMessage: {{msg}}",
+          "active": true
+        },
+        {
+          "name": "PagerDuty",
+          "type": "pagerduty",
+          "isDefault": false,
+          "applyExisting": false,
+          "pagerdutyIntegrationKey": "${PAGERDUTY_INTEGRATION_KEY}",
+          "pagerdutyPriority": "high",
+          "pagerdutyResolveAuto": true,
+          "active": true
+        }
+      ]
+    }
+  
+  status-page.json: |
+    {
+      "title": "RetroFitLink System Status",
+      "description": "Real-time status of RetroFitLink services and infrastructure",
+      "theme": "light",
+      "published": true,
+      "showTags": true,
+      "domainNames": ["status.retrofitlink.example.com"],
+      "customCSS": "",
+      "footerText": "© 2024 RetroFitLink. All rights reserved.",
+      "showPoweredBy": false,
+      "googleAnalyticsId": "",
+      "incident": {
+        "enableIncident": true,
+        "enableIncidentDate": true,
+        "enableIncidentTime": true
+      },
+      "maintenance": {
+        "enableMaintenance": true,
+        "enableMaintenanceDate": true,
+        "enableMaintenanceTime": true
+      }
+    }

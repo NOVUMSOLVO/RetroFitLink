@@ -1,0 +1,23 @@
+{{- if .Values.monitoring.alertmanager.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "retrofitlink.fullname" . }}-alertmanager
+  labels:
+    {{- include "retrofitlink.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alertmanager
+spec:
+  type: {{ .Values.monitoring.alertmanager.service.type | default "ClusterIP" }}
+  ports:
+    - port: {{ .Values.monitoring.alertmanager.service.port | default 9093 }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: 9094
+      targetPort: cluster
+      protocol: TCP
+      name: cluster
+  selector:
+    {{- include "retrofitlink.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: alertmanager
+{{- end }}

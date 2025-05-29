@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "retrofitlink.fullname" . }}-iot-simulator
+  labels:
+    {{- include "retrofitlink.labels" . | nindent 4 }}
+    app.kubernetes.io/component: iot-simulator
+spec:
+  {{- if not .Values.iotSimulator.autoscaling.enabled }}
+  replicas: {{ .Values.iotSimulator.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "retrofitlink.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: iot-simulator
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/iot-simulator-configmap.yaml") . | sha256sum }}
+        {{- with .Values.iotSimulator.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "retrofitlink.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: iot-simulator
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "retrofitlink.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.iotSimulator.podSecurityContext | nindent 8 }}
+      containers:
+        - name: iot-simulator
+          securityContext:
+            {{- toYaml .Values.iotSimulator.securityContext | nindent 12 }}
+          image: "{{ .Values.iotSimulator.image.repository }}:{{ .Values.iotSimulator.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.iotSimulator.image.pullPolicy }}
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.global.environment }}
+            - name: API_ENDPOINT
+              value: "http://{{ include "retrofitlink.fullname" . }}-backend:{{ .Values.backend.service.port }}/api/iot-data"
+            - name: SIMULATION_INTERVAL
+              value: "{{ .Values.iotSimulator.simulationInterval }}"
+            - name: DEVICE_COUNT
+              value: "{{ .Values.iotSimulator.deviceCount }}"
+          envFrom:
+            - configMapRef:
+                name: {{ include "retrofitlink.fullname" . }}-iot-simulator-config
+            - secretRef:
+                name: {{ include "retrofitlink.fullname" . }}-iot-simulator-secrets
+          resources:
+            {{- toYaml .Values.iotSimulator.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "ps aux | grep '[n]ode sensor-simulator.js' || exit 1"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "ps aux | grep '[n]ode sensor-simulator.js' || exit 1"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.iotSimulator.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.iotSimulator.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.iotSimulator.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

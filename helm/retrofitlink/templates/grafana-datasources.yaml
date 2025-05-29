@@ -1,0 +1,74 @@
+{{- if .Values.monitoring.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "retrofitlink.fullname" . }}-grafana-datasources
+  labels:
+    {{- include "retrofitlink.labels" . | nindent 4 }}
+    grafana_datasource: "1"
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      url: http://{{ include "retrofitlink.fullname" . }}-prometheus:9090
+      isDefault: true
+      editable: true
+      jsonData:
+        timeInterval: 5s
+        queryTimeout: 60s
+        httpMethod: POST
+    
+    {{- if .Values.monitoring.grafana.datasources.loki.enabled }}
+    - name: Loki
+      type: loki
+      access: proxy
+      url: {{ .Values.monitoring.grafana.datasources.loki.url }}
+      editable: true
+      jsonData:
+        maxLines: 1000
+        derivedFields:
+          - datasourceUid: jaeger
+            matcherRegex: "traceID=(\\w+)"
+            name: TraceID
+            url: "$${__value.raw}"
+    {{- end }}
+    
+    {{- if .Values.monitoring.grafana.datasources.jaeger.enabled }}
+    - name: Jaeger
+      type: jaeger
+      access: proxy
+      url: {{ .Values.monitoring.grafana.datasources.jaeger.url }}
+      editable: true
+      uid: jaeger
+    {{- end }}
+    
+    {{- if .Values.monitoring.grafana.datasources.elasticsearch.enabled }}
+    - name: Elasticsearch
+      type: elasticsearch
+      access: proxy
+      url: {{ .Values.monitoring.grafana.datasources.elasticsearch.url }}
+      database: {{ .Values.monitoring.grafana.datasources.elasticsearch.index }}
+      editable: true
+      jsonData:
+        interval: Daily
+        timeField: "@timestamp"
+        esVersion: {{ .Values.monitoring.grafana.datasources.elasticsearch.version | default "7.10.0" }}
+        logMessageField: message
+        logLevelField: level
+    {{- end }}
+    
+    {{- if .Values.monitoring.grafana.datasources.influxdb.enabled }}
+    - name: InfluxDB
+      type: influxdb
+      access: proxy
+      url: {{ .Values.monitoring.grafana.datasources.influxdb.url }}
+      database: {{ .Values.monitoring.grafana.datasources.influxdb.database }}
+      editable: true
+      jsonData:
+        httpMode: GET
+        keepCookies: []
+    {{- end }}
+{{- end }}

@@ -1,0 +1,161 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sentry-config
+  namespace: retrofitlink-prod
+  labels:
+    app: sentry
+    component: error-tracking
+data:
+  sentry.properties: |
+    # Sentry Configuration for RetroFitLink
+    sentry.dsn=${SENTRY_DSN}
+    sentry.environment=production
+    sentry.release=${APP_VERSION}
+    sentry.server-name=retrofitlink-prod
+    
+    # Performance Monitoring
+    sentry.traces-sample-rate=0.3
+    sentry.profiles-sample-rate=0.3
+    
+    # Error Filtering
+    sentry.before-send=filter-internal-errors
+    sentry.before-send-transaction=filter-health-checks
+    
+    # Breadcrumbs
+    sentry.max-breadcrumbs=100
+    sentry.attach-stacktrace=true
+    
+    # Context
+    sentry.send-default-pii=false
+    sentry.attach-threads=true
+    
+    # Tags
+    sentry.tags.service=retrofitlink
+    sentry.tags.cluster=prod
+    sentry.tags.region=us-east-1
+  
+  sentry-frontend.js: |
+    import * as Sentry from "@sentry/react";
+    import { BrowserTracing } from "@sentry/tracing";
+    
+    Sentry.init({
+      dsn: process.env.REACT_APP_SENTRY_DSN,
+      environment: process.env.NODE_ENV,
+      release: process.env.REACT_APP_VERSION,
+      
+      // Performance Monitoring
+      integrations: [
+        new BrowserTracing({
+          // Capture interactions like clicks, navigations
+          routingInstrumentation: Sentry.reactRouterV6Instrumentation(
+            React.useEffect,
+            useLocation,
+            useNavigationType,
+            createRoutesFromChildren,
+            matchRoutes
+          ),
+        }),
+      ],
+      
+      // Performance
+      tracesSampleRate: 0.1,
+      profilesSampleRate: 0.1,
+      
+      // Error Filtering
+      beforeSend(event, hint) {
+        // Filter out known non-critical errors
+        if (event.exception) {
+          const error = event.exception.values[0];
+          if (error.type === 'ChunkLoadError') {
+            return null; // Don't send chunk load errors
+          }
+          if (error.value && error.value.includes('Network Error')) {
+            return null; // Don't send network errors
+          }
+        }
+        return event;
+      },
+      
+      // User Context
+      initialScope: {
+        tags: {
+          component: "frontend",
+          service: "retrofitlink-frontend"
+        },
+        contexts: {
+          app: {
+            name: "RetroFitLink Frontend",
+            version: process.env.REACT_APP_VERSION
+          }
+        }
+      }
+    });
+    
+    export default Sentry;
+  
+  sentry-backend.js: |
+    const Sentry = require("@sentry/node");
+    const { ProfilingIntegration } = require("@sentry/profiling-node");
+    
+    Sentry.init({
+      dsn: process.env.SENTRY_DSN,
+      environment: process.env.NODE_ENV,
+      release: process.env.APP_VERSION,
+      
+      // Performance Monitoring
+      integrations: [
+        new Sentry.Integrations.Http({ tracing: true }),
+        new Sentry.Integrations.Express({ app }),
+        new Sentry.Integrations.Mongo(),
+        new ProfilingIntegration(),
+      ],
+      
+      // Performance
+      tracesSampleRate: 0.3,
+      profilesSampleRate: 0.3,
+      
+      // Error Filtering
+      beforeSend(event, hint) {
+        // Filter out health check errors
+        if (event.request && event.request.url && event.request.url.includes('/health')) {
+          return null;
+        }
+        
+        // Filter out MongoDB connection warnings
+        if (event.exception && event.exception.values[0].type === 'MongoNetworkTimeoutError') {
+          return null;
+        }
+        
+        return event;
+      },
+      
+      // Breadcrumbs
+      beforeBreadcrumb(breadcrumb, hint) {
+        // Filter out noisy breadcrumbs
+        if (breadcrumb.category === 'http' && breadcrumb.data.url.includes('/health')) {
+          return null;
+        }
+        return breadcrumb;
+      },
+      
+      // Context
+      initialScope: {
+        tags: {
+          component: "backend",
+          service: "retrofitlink-backend"
+        },
+        contexts: {
+          app: {
+            name: "RetroFitLink Backend",
+            version: process.env.APP_VERSION
+          },
+          runtime: {
+            name: "node",
+            version: process.version
+          }
+        }
+      }
+    });
+    
+    module.exports = Sentry;

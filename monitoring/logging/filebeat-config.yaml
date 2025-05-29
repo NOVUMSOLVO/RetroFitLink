@@ -1,0 +1,206 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: retrofitlink-prod
+  labels:
+    app: filebeat
+    component: logging
+data:
+  filebeat.yml: |
+    filebeat.autodiscover:
+      providers:
+        - type: kubernetes
+          node: ${NODE_NAME}
+          hints.enabled: true
+          hints.default_config:
+            type: container
+            paths:
+              - /var/log/containers/*-${data.kubernetes.container.id}.log
+          templates:
+            - condition:
+                contains:
+                  kubernetes.container.name: "retrofitlink-backend"
+              config:
+                type: container
+                paths:
+                  - /var/log/containers/*${data.kubernetes.container.id}.log
+                multiline.pattern: '^\d{4}-\d{2}-\d{2}'
+                multiline.negate: true
+                multiline.match: after
+                fields:
+                  service: retrofitlink-backend
+                  environment: production
+                fields_under_root: true
+                
+            - condition:
+                contains:
+                  kubernetes.container.name: "retrofitlink-frontend"
+              config:
+                type: container
+                paths:
+                  - /var/log/containers/*${data.kubernetes.container.id}.log
+                fields:
+                  service: retrofitlink-frontend
+                  environment: production
+                fields_under_root: true
+                
+            - condition:
+                contains:
+                  kubernetes.container.name: "blockchain-service"
+              config:
+                type: container
+                paths:
+                  - /var/log/containers/*${data.kubernetes.container.id}.log
+                multiline.pattern: '^Transaction|^Block|^Contract'
+                multiline.negate: true
+                multiline.match: after
+                fields:
+                  service: blockchain-service
+                  environment: production
+                fields_under_root: true
+                
+            - condition:
+                contains:
+                  kubernetes.container.name: "iot-simulator"
+              config:
+                type: container
+                paths:
+                  - /var/log/containers/*${data.kubernetes.container.id}.log
+                fields:
+                  service: iot-simulator
+                  environment: production
+                fields_under_root: true
+                
+            - condition:
+                contains:
+                  kubernetes.container.name: "mongodb"
+              config:
+                type: container
+                paths:
+                  - /var/log/containers/*${data.kubernetes.container.id}.log
+                multiline.pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}'
+                multiline.negate: true
+                multiline.match: after
+                fields:
+                  service: mongodb
+                  environment: production
+                fields_under_root: true
+                
+            - condition:
+                contains:
+                  kubernetes.container.name: "nginx"
+              config:
+                type: container
+                paths:
+                  - /var/log/containers/*${data.kubernetes.container.id}.log
+                json.keys_under_root: false
+                json.add_error_key: true
+                fields:
+                  service: nginx
+                  environment: production
+                fields_under_root: true
+
+    # Additional inputs for system logs
+    filebeat.inputs:
+    - type: log
+      enabled: true
+      paths:
+        - /var/log/syslog
+        - /var/log/auth.log
+      fields:
+        service: system
+        environment: production
+      fields_under_root: true
+      multiline.pattern: '^[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}'
+      multiline.negate: true
+      multiline.match: after
+
+    # Processors for log enrichment
+    processors:
+    - add_host_metadata:
+        when.not.contains.tags: forwarded
+    - add_cloud_metadata: ~
+    - add_docker_metadata: ~
+    - add_kubernetes_metadata:
+        host: ${NODE_NAME}
+        matchers:
+        - logs_path:
+            logs_path: "/var/log/containers/"
+    - add_fields:
+        target: ''
+        fields:
+          cluster: retrofitlink-prod
+          datacenter: us-east-1
+    - drop_fields:
+        fields: ["agent", "ecs", "host.architecture", "host.os.version"]
+    - rename:
+        fields:
+          - from: "kubernetes.container.name"
+            to: "container_name"
+          - from: "kubernetes.pod.name" 
+            to: "pod_name"
+          - from: "kubernetes.namespace"
+            to: "namespace"
+
+    # Output configuration
+    output.logstash:
+      hosts: ["logstash:5044"]
+      worker: 2
+      bulk_max_size: 2048
+      template.enabled: false
+      loadbalance: true
+      compression_level: 3
+      
+    # Alternative outputs for different log types
+    # output.elasticsearch:
+    #   hosts: ["elasticsearch:9200"]
+    #   index: "filebeat-%{[agent.version]}-%{+yyyy.MM.dd}"
+    #   template.enabled: true
+    #   template.settings:
+    #     index.number_of_shards: 2
+    #     index.number_of_replicas: 1
+
+    # Logging configuration
+    logging.level: info
+    logging.to_files: true
+    logging.files:
+      path: /var/log/filebeat
+      name: filebeat
+      keepfiles: 7
+      permissions: 0644
+
+    # Monitoring
+    monitoring.enabled: true
+    monitoring.elasticsearch:
+      hosts: ["elasticsearch:9200"]
+      
+    # HTTP endpoint for health checks
+    http.enabled: true
+    http.port: 5066
+    http.host: "0.0.0.0"
+
+    # Security settings
+    ssl.verification_mode: none
+    
+    # Performance tuning
+    queue.mem:
+      events: 4096
+      flush.min_events: 512
+      flush.timeout: 1s
+      
+    # Harvester settings
+    filebeat.registry.flush: 1s
+    filebeat.registry.file_permissions: 0600
+    
+    # Close settings
+    close_inactive: 5m
+    close_renamed: true
+    close_removed: true
+    close_eof: false
+    
+    # Scan frequency
+    scan_frequency: 10s
+    
+    # Max bytes per message
+    max_bytes: 10485760  # 10MB

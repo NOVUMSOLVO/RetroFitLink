@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import config from '../config/environment';
 
 const RetrofitTable = ({ authorityId }) => {
   const [retrofits, setRetrofits] = useState([]);
@@ -13,11 +14,18 @@ const RetrofitTable = ({ authorityId }) => {
   const fetchRetrofits = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('http://localhost:5000/api/retrofits');
+      const response = await axios.get(`${config.apiUrl}/api/retrofits`, {
+        timeout: config.apiTimeout,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
       setRetrofits(response.data);
     } catch (err) {
       setError('Failed to fetch retrofits');
-      console.error(err);
+      if (config.enableDebugLogs) {
+        console.error('Retrofit fetch error:', err);
+      }
     } finally {
       setLoading(false);
     }

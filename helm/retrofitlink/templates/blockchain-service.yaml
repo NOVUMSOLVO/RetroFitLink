@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "retrofitlink.fullname" . }}-blockchain
+  labels:
+    {{- include "retrofitlink.labels" . | nindent 4 }}
+    app.kubernetes.io/component: blockchain
+  annotations:
+    prometheus.io/scrape: "false"
+spec:
+  type: {{ .Values.blockchain.service.type }}
+  ports:
+    - port: {{ .Values.blockchain.service.port }}
+      targetPort: rpc
+      protocol: TCP
+      name: rpc
+  selector:
+    {{- include "retrofitlink.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: blockchain

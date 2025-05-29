@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "retrofitlink.fullname" . }}-blockchain
+  labels:
+    {{- include "retrofitlink.labels" . | nindent 4 }}
+    app.kubernetes.io/component: blockchain
+spec:
+  {{- if not .Values.blockchain.autoscaling.enabled }}
+  replicas: {{ .Values.blockchain.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "retrofitlink.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: blockchain
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/blockchain-configmap.yaml") . | sha256sum }}
+        {{- with .Values.blockchain.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "retrofitlink.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: blockchain
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "retrofitlink.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.blockchain.podSecurityContext | nindent 8 }}
+      containers:
+        - name: blockchain
+          securityContext:
+            {{- toYaml .Values.blockchain.securityContext | nindent 12 }}
+          image: "{{ .Values.blockchain.image.repository }}:{{ .Values.blockchain.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.blockchain.image.pullPolicy }}
+          ports:
+            - name: rpc
+              containerPort: 8545
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: rpc
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: rpc
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.global.environment }}
+            - name: NETWORK_ID
+              value: "{{ .Values.blockchain.networkId }}"
+          envFrom:
+            - configMapRef:
+                name: {{ include "retrofitlink.fullname" . }}-blockchain-config
+            - secretRef:
+                name: {{ include "retrofitlink.fullname" . }}-blockchain-secrets
+          resources:
+            {{- toYaml .Values.blockchain.resources | nindent 12 }}
+          volumeMounts:
+            - name: blockchain-data
+              mountPath: /app/data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: blockchain-data
+          {{- if .Values.blockchain.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "retrofitlink.fullname" . }}-blockchain-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.blockchain.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.blockchain.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.blockchain.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

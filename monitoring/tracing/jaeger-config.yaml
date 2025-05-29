@@ -1,0 +1,332 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jaeger-config
+  namespace: retrofitlink-prod
+  labels:
+    app: jaeger
+    component: tracing
+data:
+  jaeger-collector.yaml: |
+    # Jaeger Collector Configuration
+    collector:
+      # gRPC server settings
+      grpc-server:
+        host-port: ":14250"
+        
+      # HTTP server settings  
+      http-server:
+        host-port: ":14268"
+        
+      # Zipkin compatibility
+      zipkin:
+        host-port: ":9411"
+        
+      # Health check
+      admin-http-port: 14269
+      
+      # Log level
+      log-level: info
+      
+      # Sampling strategies
+      sampling:
+        strategies-file: /etc/jaeger/sampling-strategies.json
+        strategies-reload-interval: 1m
+        
+    # Storage configuration
+    storage:
+      type: elasticsearch
+      elasticsearch:
+        server-urls: http://elasticsearch:9200
+        username: ""
+        password: ""
+        index-prefix: "jaeger"
+        create-index-templates: true
+        version: 8
+        num-shards: 2
+        num-replicas: 1
+        bulk:
+          size: 5242880  # 5MB
+          workers: 1
+          actions: 1000
+          flush-interval: 200ms
+        
+    # Metrics
+    metrics:
+      backend: prometheus
+      http-route: /metrics
+      
+  jaeger-query.yaml: |
+    # Jaeger Query Configuration
+    query:
+      # Server settings
+      grpc-server:
+        host-port: ":16685"
+      http-server:
+        host-port: ":16686"
+        
+      # Health check
+      admin-http-port: 16687
+      
+      # Log settings
+      log-level: info
+      
+      # Base path for UI
+      base-path: /
+      
+      # Additional query options
+      query:
+        timeout: 30s
+        max-clock-skew-adjustment: 0s
+        
+    # Storage configuration (same as collector)
+    storage:
+      type: elasticsearch
+      elasticsearch:
+        server-urls: http://elasticsearch:9200
+        username: ""
+        password: ""
+        index-prefix: "jaeger"
+        create-index-templates: true
+        version: 8
+        num-shards: 2
+        num-replicas: 1
+        
+    # Metrics
+    metrics:
+      backend: prometheus
+      http-route: /metrics
+      
+  jaeger-agent.yaml: |
+    # Jaeger Agent Configuration
+    agent:
+      # Jaeger thrift compact server
+      processor:
+        jaeger-compact:
+          server-host-port: ":6831"
+          server-queue-size: 1000
+          workers: 10
+          
+        # Jaeger thrift binary server  
+        jaeger-binary:
+          server-host-port: ":6832"
+          server-queue-size: 1000
+          workers: 10
+          
+        # Zipkin thrift compact server
+        zipkin-compact:
+          server-host-port: ":5775"
+          server-queue-size: 1000
+          workers: 10
+          
+      # Reporters
+      reporter:
+        grpc:
+          host-port: "jaeger-collector:14250"
+          retry:
+            max: 3
+          connection-timeout: 1s
+          
+      # Health check
+      admin-http-port: 14271
+      
+      # Log level
+      log-level: info
+      
+  sampling-strategies.json: |
+    {
+      "service_strategies": [
+        {
+          "service": "retrofitlink-backend",
+          "type": "probabilistic",
+          "param": 0.5,
+          "max_traces_per_second": 100,
+          "operation_strategies": [
+            {
+              "operation": "GET /health",
+              "type": "probabilistic", 
+              "param": 0.01
+            },
+            {
+              "operation": "POST /api/auth/login",
+              "type": "probabilistic",
+              "param": 1.0
+            },
+            {
+              "operation": "POST /api/retrofits",
+              "type": "probabilistic", 
+              "param": 1.0
+            }
+          ]
+        },
+        {
+          "service": "retrofitlink-frontend",
+          "type": "probabilistic",
+          "param": 0.2,
+          "max_traces_per_second": 50
+        },
+        {
+          "service": "blockchain-service", 
+          "type": "probabilistic",
+          "param": 1.0,
+          "max_traces_per_second": 20
+        },
+        {
+          "service": "iot-simulator",
+          "type": "probabilistic",
+          "param": 0.1,
+          "max_traces_per_second": 10
+        },
+        {
+          "service": "mongodb",
+          "type": "probabilistic",
+          "param": 0.3,
+          "max_traces_per_second": 30
+        }
+      ],
+      "default_strategy": {
+        "type": "probabilistic",
+        "param": 0.1,
+        "max_traces_per_second": 10
+      },
+      "per_operation_strategies": [
+        {
+          "service": "*",
+          "operation": "health-check",
+          "type": "probabilistic",
+          "param": 0.01
+        },
+        {
+          "service": "*",
+          "operation": "metrics",
+          "type": "probabilistic", 
+          "param": 0.01
+        }
+      ]
+    }
+    
+  jaeger-instrumentation.js: |
+    // Backend instrumentation configuration
+    const { NodeSDK } = require('@opentelemetry/sdk-node');
+    const { JaegerExporter } = require('@opentelemetry/exporter-jaeger');
+    const { Resource } = require('@opentelemetry/resources');
+    const { SemanticResourceAttributes } = require('@opentelemetry/semantic-conventions');
+    const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
+    
+    // Create Jaeger exporter
+    const jaegerExporter = new JaegerExporter({
+      endpoint: process.env.JAEGER_ENDPOINT || 'http://jaeger-collector:14268/api/traces',
+    });
+    
+    // Create SDK
+    const sdk = new NodeSDK({
+      resource: new Resource({
+        [SemanticResourceAttributes.SERVICE_NAME]: process.env.SERVICE_NAME || 'retrofitlink-backend',
+        [SemanticResourceAttributes.SERVICE_VERSION]: process.env.APP_VERSION || '1.0.0',
+        [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'production',
+        [SemanticResourceAttributes.SERVICE_NAMESPACE]: 'retrofitlink',
+      }),
+      traceExporter: jaegerExporter,
+      instrumentations: [
+        getNodeAutoInstrumentations({
+          // Disable file system instrumentation (too noisy)
+          '@opentelemetry/instrumentation-fs': {
+            enabled: false,
+          },
+          // Configure HTTP instrumentation
+          '@opentelemetry/instrumentation-http': {
+            enabled: true,
+            ignoreRequestHook: (req) => {
+              // Ignore health checks and metrics endpoints
+              return req.url && (req.url.includes('/health') || req.url.includes('/metrics'));
+            },
+            requestHook: (span, request) => {
+              span.setAttributes({
+                'http.user_agent': request.headers['user-agent'],
+                'http.client_ip': request.headers['x-forwarded-for'] || request.connection.remoteAddress,
+              });
+            },
+          },
+          // Configure Express instrumentation
+          '@opentelemetry/instrumentation-express': {
+            enabled: true,
+            ignoreLayers: [
+              // Ignore middleware layers that are too noisy
+              (name) => name === 'middleware',
+            ],
+          },
+          // Configure MongoDB instrumentation
+          '@opentelemetry/instrumentation-mongodb': {
+            enabled: true,
+            enhancedDatabaseReporting: true,
+          },
+        }),
+      ],
+    });
+    
+    // Initialize SDK
+    sdk.start();
+    
+    module.exports = sdk;
+    
+  jaeger-frontend.js: |
+    // Frontend instrumentation configuration
+    import { WebTracerProvider } from '@opentelemetry/sdk-trace-web';
+    import { JaegerExporter } from '@opentelemetry/exporter-jaeger';
+    import { Resource } from '@opentelemetry/resources';
+    import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+    import { registerInstrumentations } from '@opentelemetry/instrumentation';
+    import { getWebAutoInstrumentations } from '@opentelemetry/auto-instrumentations-web';
+    import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
+    
+    // Create provider
+    const provider = new WebTracerProvider({
+      resource: new Resource({
+        [SemanticResourceAttributes.SERVICE_NAME]: 'retrofitlink-frontend',
+        [SemanticResourceAttributes.SERVICE_VERSION]: process.env.REACT_APP_VERSION || '1.0.0',
+        [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'production',
+        [SemanticResourceAttributes.SERVICE_NAMESPACE]: 'retrofitlink',
+      }),
+    });
+    
+    // Create Jaeger exporter
+    const jaegerExporter = new JaegerExporter({
+      endpoint: process.env.REACT_APP_JAEGER_ENDPOINT || 'http://jaeger-collector:14268/api/traces',
+    });
+    
+    // Add span processor
+    provider.addSpanProcessor(new BatchSpanProcessor(jaegerExporter));
+    
+    // Register provider
+    provider.register();
+    
+    // Register instrumentations
+    registerInstrumentations({
+      instrumentations: [
+        getWebAutoInstrumentations({
+          // Configure fetch instrumentation
+          '@opentelemetry/instrumentation-fetch': {
+            enabled: true,
+            ignoreUrls: [
+              // Ignore health checks and static assets
+              /\/health$/,
+              /\.(css|js|png|jpg|gif|svg|ico|woff|woff2|ttf|eot)$/,
+            ],
+            propagateTraceHeaderCorsUrls: [
+              new RegExp(process.env.REACT_APP_API_URL || 'http://localhost:5000'),
+            ],
+          },
+          // Configure user interaction instrumentation
+          '@opentelemetry/instrumentation-user-interaction': {
+            enabled: true,
+            eventNames: ['click', 'submit', 'change'],
+          },
+          // Configure document load instrumentation
+          '@opentelemetry/instrumentation-document-load': {
+            enabled: true,
+          },
+        }),
+      ],
+    });
+    
+    export default provider;
